@@ -236,10 +236,11 @@ def load_user_db():
                      "  twitch_reminder "
                      "FROM webtiles_users")
             for row in c.execute(query):
-                _user_data["webtiles"][row[0]] = {"nick"            : row[1],
-                                                  "subscribed"      : row[2],
-                                                  "twitch_user"     : row[3],
-                                                  "twitch_reminder" : row[4]}
+                _user_data["webtiles"][row[0].lower()] = {
+                    "nick"            : row[1],
+                    "subscribed"      : row[2],
+                    "twitch_user"     : row[3],
+                    "twitch_reminder" : row[4]}
 
         if conf.service_enabled("twitch"):
             query = ("SELECT "
