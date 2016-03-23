@@ -3,7 +3,7 @@
 # =======================
 
 # Text given in chat when someone executes !beem help
-help_text = """I'm a chat bot that relays commands to the DCSS irc bots Sequell, Gretell, and Cheibriados. For further details, see https://github.com/gammafunk/beem/docs/commands.md"""
+help_text = """I'm a chat bot that relays commands to the DCSS irc bots Sequell, Gretell, and Cheibriados. For further details, see https://github.com/gammafunk/beem/blob/master/docs/commands.md"""
 
 # Sqlite3 user database file.
 user_db = "user_data.db3"
