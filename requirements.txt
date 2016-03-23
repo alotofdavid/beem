@@ -1,0 +1,4 @@
+asyncio==3.4.3
+irc==13.1
+pytoml==0.1.5
+websockets==3.0
