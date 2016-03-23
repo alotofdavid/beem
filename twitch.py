@@ -191,7 +191,7 @@ class twitch_manager():
     def _stop_listening(self, channel):
         try:
             if self._message_limited(True):
-                raise StandardError("Reached message limit")
+                raise Exception("Reached message limit")
 
             self._sent_normal_message = True
             if _conf.twitch.get("fake_connect"):
@@ -287,7 +287,7 @@ class twitch_manager():
             msg = ("Twitch: Didn't send join message for user {} due to "
                    "message limit".format(channel.username))
             _log.info(msg)
-            raise StandardError(msg)
+            raise Exception(msg)
 
         self._sent_normal_message = True
         if _conf.twitch.get("fake_connect"):

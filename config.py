@@ -277,7 +277,7 @@ def register_user(source, sender, service, username):
         fields = ["nick"]
         values = [""]
     else:
-        raise StandardError("Unknown service {}".format(service))
+        raise Exception("Unknown service {}".format(service))
 
     fields_statement = ""
     values_statement = ""
@@ -298,7 +298,7 @@ def register_user(source, sender, service, username):
                      "WHERE username=? collate nocase".format(service))
         c.execute(statement, (username,))
         if c.fetchone():
-            raise StandardError("User already registered")
+            raise Exception("User already registered")
 
         statement = ("INSERT INTO {}_users "
                      "  (username,{}) VALUES (?,{})".format(
