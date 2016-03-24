@@ -6,7 +6,6 @@ import re
 import sqlite3
 import time
 
-import beem
 import chat
 import config
 import dcss
@@ -42,7 +41,7 @@ class twitch_channel(chat.chat_listener):
 
 
 class twitch_manager():
-    ## Can't depend on config.conf or beem.server, as these isn't loaded yet.
+    # Can't depend on config.conf, as the data for this isn't loaded yet.
     def __init__(self):
         self.messages = None
         self._message_count = 0

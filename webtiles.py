@@ -10,7 +10,6 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 import zlib
 
-import beem
 import chat
 import config
 import dcss
@@ -483,7 +482,7 @@ class game_connection(webtiles_connection, chat.chat_listener):
 
 
 class webtiles_manager():
-    # Can't depend on beem.server or config.conf, as these aren't loaded yet.
+    # Can't depend on config.conf, as the data for this isn't loaded yet.
     def __init__(self):
         self._lobby = lobby_connection()
         self._autolisten_candidate = None
