@@ -385,23 +385,21 @@ class twitch_manager():
                     "Already in chat of Twitch user {}".format(target_user))
                 return
 
-            if user_data:
-                entry = self._get_queue_entry(target_user)
-                if entry:
-                    yield from source.send_chat(
-                        "Join request for Twitch user {} is already in the "
-                        "queue".format(target_user))
-                else:
-                    self._add_queue(target_user)
-                    yield from source.send_chat(
-                        "Join request added, {} will join Twitch chat of user "
-                        "{} soon".format(bot_name, target_user))
+            if not user_data:
+                yield from source.send_chat(
+                    "Twitch user {} is not registered".format(target_user))
                 return
 
-            else:
+            entry = self._get_queue_entry(target_user)
+            if entry:
                 yield from source.send_chat(
-                    "You must first register with {} from Twitch chat using "
-                    "the following command: {} register".format(bot_name))
+                    "Join request for Twitch user {} is already in the "
+                    "queue".format(target_user))
+            else:
+                self._add_queue(target_user)
+                yield from source.send_chat(
+                    "Join request added, {} will join Twitch chat of user "
+                    "{} soon".format(bot_name, target_user))
             return
 
         if command == "part":
@@ -409,24 +407,26 @@ class twitch_manager():
             if not chan:
                 yield from source.send_chat(
                     "Not in chat of user {}".format(target_user))
-            else:
-                try:
-                    yield from self._stop_listening(chan)
-                except:
-                    yield from source.send_chat(
-                        "Error when trying to part Twitch chat")
-                    return
+                return
 
-                finally:
-                    entry = self._get_queue_entry(target_user)
-                    if entry:
-                        entry["parted"] = True
-                # Don't send a message to the channel we've just parted.
-                if (source.service_name != "twitch"
-                    or source.username != target_user):
-                    yield from source.send_chat(
-                        "Leaving Twitch chat of user {}".format(target_user))
-            return
+            try:
+                yield from self._stop_listening(chan)
+            except:
+                yield from source.send_chat(
+                    "Error when trying to part Twitch chat")
+                return
+
+            finally:
+                entry = self._get_queue_entry(target_user)
+                if entry:
+                    entry["parted"] = True
+
+            # Don't send a message to the channel we've just parted.
+            if (source.service_name != "twitch"
+                or source.username != target_user):
+                yield from source.send_chat(
+                    "Leaving Twitch chat of user {}".format(target_user))
+
 
 def _can_listen_user(user):
     if _conf.get("single_user"):
