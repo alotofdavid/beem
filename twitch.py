@@ -364,6 +364,8 @@ class twitch_manager():
                     yield from source.send_chat("Error when registering")
                     return
 
+                user_data = config.get_user_data("twitch", target_user)
+
             try:
                 if user_data["nick"] != args[0]:
                     config.set_user_field(source, sender, "twitch",
