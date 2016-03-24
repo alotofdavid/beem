@@ -1,18 +1,24 @@
 beem
 ====
 
-beem is a multi-user chat bot that can relay queries to the IRC knowledge bots
-for [DCSS](http://crawl.develz.org/wordpress/) from WebTiles or Twitch
-chat. This bot is being tested on [CSZO](http://crawl.s-z.org/) and will
-automatically join your chat if your game has the most spectators and isn't
-idle for too long. See the [command guide](docs/commands.md) for details on
-using beem when it's listening in your chat.
+beem is a multi-user chat bot that can relay queries to the IRC
+knowledge bots for [DCSS](http://crawl.develz.org/wordpress/) from
+WebTiles or Twitch chat. This bot is being tested on
+[CSZO](http://crawl.s-z.org/) and will automatically join your chat if
+your game has the most spectators and isn't idle for too long. You can
+subscribe to have beem watch your games on CSZO automatically; See the
+[command guide](docs/commands.md) for details on using beem from chat.
 
-beem manages a Freenode IRC connection, a Twitch IRC connection with arbitrary
-many channels, and arbitrary many WebSocket game connections. It's
-single-threaded and uses
-[asyncio](https://docs.python.org/3.4/library/asyncio.html) to manage an an
-event loop with concurrent tasks.
+beem manages a Freenode IRC connection that sends queries to the bots
+on Freenode and receive the results. It supports monitoring the chat
+of any number of WebTiles games based on user subscription made in
+chat, and can dedicate a connection to watch the most-spectated game
+on the server. It can also watch the chat of any number of Twitch
+streams and respond to queries.
+
+beem is single-threaded and uses
+[asyncio](https://docs.python.org/3.4/library/asyncio.html) to manage
+an an event loop with concurrent tasks.
 
 Dependencies
 ------------
@@ -30,7 +36,7 @@ Configuration
 -------------
 
 Copy the [beem_config.toml.sample](beem_config.toml.sample) file to
-`beem_config.toml` and edit the necessary fields based on how you'd like to run
-the bot. The config file format is
-[toml](https://github.com/toml-lang/toml). and the fields in this file are
-documented in comments.
+`beem_config.toml` and edit the necessary fields based on how you'd
+like to run the bot. The config file format is
+[toml](https://github.com/toml-lang/toml), and the various field you
+can change are in this file are documented in comments.

@@ -2,9 +2,18 @@
 
 beem is a multi-user chat bot that can relay queries to the IRC knowledge bots
 for [DCSS](http://crawl.develz.org/wordpress/) from WebTiles or Twitch chat. If
-beem is listening in your chat, type commands for the bots Sequell, Gretell,
-and Cheibriados to see the results, just like you would in the *##crawl*
-channel on Freenode.
+beem watching a game in WebTiles, type commands into chat for the bots Sequell,
+Gretell, and Cheibriados to have beem return the results. beem supports nearly
+any command you would use use for these bots in the *##crawl* channel on
+Freenode.
+
+If you see beem watching a game played on CSZO, type the following in chat to
+get subscribed and have beem begin watching your games:
+
+    !beem subscribe
+
+See the [beem command](#beem-control-commands) section for other commands you
+can use to control beem.
 
 DCSS bot commands
 -----------------
@@ -81,7 +90,7 @@ games and are made on all servers except lld and cwz.
   Get the URL to the ttyrec file for use with a local ttyrec player like
   (jettyplay)[http://nethack4.org/projects/jettyplay/].
 
-See `??footv` and `??ttyrec` for further details.
+See `??footv` and `??ttyrec` for further examples and details.
 
 ###Sequell commands
 
@@ -100,7 +109,7 @@ Twitch chat, use `_` instead of `.`.
 Many commands do complicated !lg or !lm commands and accept arguments for
 those. For example:
 
-`!killratio sigmund * recent`
+    !killratio sigmund * recent
 
 will give sigmund's player kill-rate in recent versions of DCSS.
 
@@ -134,7 +143,7 @@ Freenode.
 Look up monster information relative to the trunk version through Gretell by
 typing a query like:
 
-    @??monster name
+    @??the royal jelly
 
 
 In these monster queries, you can set some fields in the form `field:value`:
@@ -143,19 +152,16 @@ In these monster queries, you can set some fields in the form `field:value`:
     @??orb_guardian perm_ench:berserk
     @??sigmund spells:fire_storm.200.magical
 
-To see monster details when they have a specific status, number of HD, or to
+to see monster details when they have a specific status, number of HD, or to
 see how much damage they would do with a specific spell
 
-For a specific serpent of hell add geh, dis, coc, or tar like:
+For a specific serpent of hell add geh, dis, coc, or tar:
 
     @??serpent_of_hell geh
 
-For spells, seperate entries with `;` and make each have the form:
-
-    spell_name.200.magical
-
-Here 200 is the spell frequency and "magical" is cast type, but these don't
-matter for purposes of looking up monsters.
+For spells, seperate entries with `;` and make each have the form
+`spell_name.200.magical`. Here 200 is the spell frequency and "magical" is cast
+type, but these don't matter for purposes of looking up monsters.
 
 For the 0.17 monster database, you can make the same query through Cheibriados
 using prefix `%??`.
