@@ -351,7 +351,7 @@ def set_user_field(source, sender, service, username, field, value):
             c.close()
         if conn:
             conn.close()
-    _user_data[service][username][field] = value
+    _user_data[service][username.lower()][field] = value
     _log.info("%s: Did User DB request (listen user: %s, request user: %s, "
               "target user: %s, field: %s, value: %s)",
               service_data[source.service_name]["desc"], source.username,
