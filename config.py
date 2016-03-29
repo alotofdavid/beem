@@ -309,9 +309,9 @@ def register_user(source, sender, service, username):
 
     except Exception as e:
         _log.error("%s: Unable to register user (listen user: %s, request "
-                   "user: %s, target service: %s, target user: %s): %s",
+                   "user: %s, target user: %s): %s",
                    service_data[source.service_name]["desc"], source.username,
-                   sender, service, username, e.args[0])
+                   sender, username, e.args[0])
         raise
 
     finally:
@@ -322,9 +322,9 @@ def register_user(source, sender, service, username):
 
     _user_data[service][username.lower()] = user_entry
     _log.info("%s: Did user registration (listen user: %s, request user: %s, "
-              "target service: %s, target user: %s)",
+              "target user: %s)",
               service_data[source.service_name]["desc"], source.username,
-              sender, service, username)
+              sender, username)
 
 def set_user_field(source, sender, service, username, field, value):
     conn = None
@@ -340,10 +340,10 @@ def set_user_field(source, sender, service, username, field, value):
 
     except sqlite3.Error as e:
         _log.error("%s: Unable to complete DB request (listen user: %s, "
-                   "request user: %s, target service: %s, target user: %s, "
-                   "field: %s, value: %s): %s",
-                   service_data[source.service_name]["desc"], source.username,
-                   sender, service, username, field, str(value), e.args[0])
+                   "request user: %s, target user: %s, field: %s, value: %s): "
+                   "%s", service_data[source.service_name]["desc"],
+                   source.username, sender, username, field, str(value),
+                   e.args[0])
         raise
 
     finally:
@@ -353,9 +353,9 @@ def set_user_field(source, sender, service, username, field, value):
             conn.close()
     _user_data[service][username][field] = value
     _log.info("%s: Did User DB request (listen user: %s, request user: %s, "
-              "target service: %s, target user: %s, field: %s, value: %s)",
+              "target user: %s, field: %s, value: %s)",
               service_data[source.service_name]["desc"], source.username,
-              sender, service, username, field, str(value))
+              sender, username, field, str(value))
 
 def get_user_data(service, username):
     return _user_data[service].get(username.lower())
