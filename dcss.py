@@ -133,7 +133,6 @@ class dcss_manager():
         message = re.sub(
             "\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?", "",
             event.arguments[0], flags=re.UNICODE)
-        is_action = False
         nick = re.sub(r"([^!]+)!.*", r"\1", event.source)
         self._messages.append((nick, message))
 
@@ -325,24 +324,11 @@ class dcss_manager():
                        source.username, requester, e.args[0], message)
         else:
             _log.info("DCSS: Sent %s command (service: %s, chat: %s, "
-                      "requester: %s): %s",
+                      "requester: %s): %s", command_type,
                       config.service_data[source.service_name]["desc"],
-                      command_type, source.username, requester, message)
-
-def _is_bad_pattern(command):
-    if not _conf.dcss.get("bad_patterns"):
-        return False
-
-    for bp in _conf.dcss["bad_patterns"]:
-        if re.search(bp, command):
-            return True
-    return False
+                      source.username, requester, message)
 
 def is_dcss_command(message):
-    if _is_bad_pattern(message):
-        _log.debug("DCSS: Bad pattern message: %s", message)
-        return False
-
     return (_is_sequell_command(message)
             or _is_cheibriados_command(message)
             or _is_gretell_command(message))

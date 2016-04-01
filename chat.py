@@ -148,6 +148,24 @@ class chat_listener():
 
         return user_data["nick"]
 
+    def _is_bad_pattern(self, message):
+        if _conf.dcss.get("bad_patterns"):
+            for pat in _conf.dcss["bad_patterns"]:
+                if re.search(pat, message):
+                    _log.debug("DCSS: Bad pattern message: %s", message)
+                    return True
+
+        bad_patterns = _conf.get(self.service_name).get("bad_patterns")
+        if bad_patterns:
+            for pat in bad_patterns:
+                if re.search(pat, message):
+                    _log.debug("%s: Bad %s pattern message: %s",
+                               config.service_data[self.service_name]["desc"],
+                               message)
+                    return True
+
+        return False
+
     @asyncio.coroutine
     def read_chat(self, sender, message):
         time_last = self._time_last_command
@@ -157,11 +175,13 @@ class chat_listener():
         if not self._is_allowed_user(sender):
             return
 
+        if self._is_bad_pattern(message):
+            return
+
         if self._is_beem_command(message):
             yield from self._read_beem_command(sender, message)
         elif dcss.is_dcss_command(message):
             yield from dcss.manager.read_command(self, sender, message)
-
 
 def is_bot_command(message):
     """Messages that might get parsed by other bots and will need escaping"""

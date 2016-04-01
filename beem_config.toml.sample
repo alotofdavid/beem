@@ -140,9 +140,10 @@ websocket_url = "ws://webzook.net:8080/socket"
 hostname = "chat.freenode.org"
 port = 6667
 
-# Chat messages matching these regular expressions _anywhere_ in the message
-# will not be passed on to any IRC bot. You can add regular expression patterns
-# to this array to prevent users from running certain commands.
+# Chat messages matching these regular expressions anywhere in the message will
+# not be passed on to any IRC bot. You can add regular expression patterns to
+# this array to prevent users from running certain commands. Entries here apply
+# to messages from both WebTiles and Twitch.
 # bad_patterns = []
 
 # Generally you won't want to change any of the remaining settings in the
@@ -192,6 +193,17 @@ port = 6667
 
 # Admins  can run all beem commands.
 # admins = ["gammafunk"]
+
+# Twitch chat messages matching these regular expressions anywhere in the
+# message will not be passed on to any IRC bot. You can add regular expression
+# patterns to this array to prevent Twitch users from running certain
+# commands. The list below excludes common Nightbot and Moobot commands.
+bad_patterns = [
+# Moobot
+'^!(commercial|currentsong|game |moobot|nextsong|permit|raffle|shoutout|skipsong|songlist|songrequest|title |volume|vote|wrongsong)',
+# Nightbot
+'^!(commands|filters|poll |regulars|songs|winner)'
+]
 
 # According to
 # http://help.twitch.tv/customer/portal/articles/1302780-twitch-irc moderators
