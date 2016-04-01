@@ -2,7 +2,7 @@
 # beem configuration file
 # =======================
 
-# Text given in chat when someone executes !beem help
+# Text given in chat when someone executes !<bot-name> help
 help_text = """I'm a chat bot that relays commands to the DCSS irc bots Sequell, Gretell, and Cheibriados. For further details, see https://github.com/gammafunk/beem/blob/master/docs/commands.md"""
 
 # Sqlite3 user database file.
@@ -37,7 +37,7 @@ greeting_text = "I am %n. For help, type: !%n help"
 
 # Admins  can run all beem commands and their games will always be watched
 # by beem.
-# admins = ["gammafunk"]
+# admins = []
 
 # A default server to watch at startup, where server is a name defined in the
 # webtiles_servers table array below. Beem will autolisten users based on the
@@ -85,11 +85,12 @@ max_connection_idle = 60
 
 # Text to say in WebTiles chat periodically telling spectators about the twitch
 # stream when the bot is also in the user's Twitch chat. The user must have a
-# twitch_user setting (using !beem twitch-user) and have their twitch reminder
-# enabled (using !beem twitch-reminder) for the the reminder to be active. In
-# the string below, %us is replaced with the possessive form of the username
-# we're watching, %u is replaced with the username we're watching, and %t is
-# replaced with the Twitch username.
+# twitch_user setting (using !<bot-name> twitch-user) and have their twitch
+# reminder enabled (using !<bot-name> twitch-reminder) for the the reminder to
+# be active. In the string below, %us is replaced with the possessive form of
+# the username we're watching, %u is replaced with the username we're watching,
+# and %t is replaced with the Twitch username.
+
 twitch_reminder_text = """Hi everyone! Check out the stream at twitch.tv/%t.
 %u isn't checking WebTiles chat, but can respond on Twitch."""
 
@@ -191,8 +192,8 @@ hostname = "irc.twitch.tv"
 port = 6667
 # password = ""
 
-# Admins  can run all beem commands.
-# admins = ["gammafunk"]
+# Admins can run all beem commands.
+# admins = []
 
 # Twitch chat messages matching these regular expressions anywhere in the
 # message will not be passed on to any IRC bot. You can add regular expression
@@ -212,8 +213,8 @@ bad_patterns = [
 # moderator. Beem tracks these message usages and will prevent sending
 # joins/parts/chat messages if it runs into these limits.
 
-# Your bot can be locked out for 8 hours if you voilate these conditions, so be
-# careful.
+# Your account can be locked out for 8 hours if you voilate these conditions,
+# so be careful.
 message_limit = 20
 moderator_message_limit = 100
 
