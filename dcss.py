@@ -94,19 +94,11 @@ class dcss_manager():
 
     @asyncio.coroutine
     def _send(self, nick, message):
-        _log.debug("DCSS: Sent message to %s: %s", nick, message)
+        _log.debug("DCSS: Sending message to %s: %s", nick, message)
         if _conf.dcss.get("fake_connect"):
             return
 
         self._server.privmsg(nick, message)
-
-    def _decode_irc(self, message):
-        """
-        Strip any non-utf8 characters for e.g. colors.
-        """
-        return re.sub(
-            "\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?", "",
-            message, flags=re.UNICODE)
 
     def _dispatcher(self, connection, event):
         """
@@ -135,7 +127,9 @@ class dcss_manager():
         if not self.logged_in:
             return
 
-        message = self._decode_irc(event.arguments[0])
+        message = re.sub(
+            "\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?", "",
+            event.arguments[0], flags=re.UNICODE)
         is_action = False
         nick = re.sub(r"([^!]+)!.*", r"\1", event.source)
         self._messages.append((nick, message))
@@ -157,18 +151,12 @@ class dcss_manager():
         # This won't work for twitch until we can track list of twitch chat
         # users and also map twitch users to crawl logins.
         spec_nicks = [source.get_nick(name) for name in source.spectators]
-        message = re.sub(r"\$chat(?=\W|$)|\$\{chat\}",
-                         "|".join(spec_nicks), message)
-        try:
-            yield from self._send(
-                _conf.dcss["sequell_nick"],
-                "!RELAY -nick {} -channel {} -prefix {} -n 1 {}".format(
-                    source.get_nick(user), source.irc_channel, prefix, message))
-        except Exception as e:
-            _log.error("DCSS: Unable to send Sequell message '%s' from chat of "
-                       "%s user %s: %s ", message,
-                       config.service_data[service]["desc"], source.username,
-                       e.args[0])
+        message = re.sub(r"\$chat(?=\W|$)|\$\{chat\}", "|".join(spec_nicks),
+                         message)
+        yield from self._send(
+            _conf.dcss["sequell_nick"],
+            "!RELAY -nick {} -channel {} -prefix {} -n 1 {}".format(
+                source.get_nick(user), source.irc_channel, prefix, message))
 
     @asyncio.coroutine
     def _send_gretell_command(self, source, command):
@@ -178,12 +166,9 @@ class dcss_manager():
 
         try:
             yield from self._send(_conf.dcss["gretell_nick"], command)
-        except Exception as e:
-            _log.error("DCSS: Unable to send Gretell message '%s' from chat of "
-                       "%s user %s: %s ", message,
-                       config.service_data[service]["desc"], source.username,
-                       message, e.args[0])
-            self._gretell_sources.pop()
+        except:
+            self._gretell_queue.pop()
+            raise
 
     @asyncio.coroutine
     def _send_cheibriados_command(self, source, command):
@@ -193,22 +178,19 @@ class dcss_manager():
 
         try:
             yield from self._send(_conf.dcss["cheibriados_nick"], command)
-        except Exception as e:
-            _log.error("DCSS: Unable to send Cheibriados message '%s' from "
-                       "chat of %s user %s: %s ", message,
-                       config.service_data[service]["desc"], source.username,
-                       command, e.args[0])
-            self._cheibriados_sources.pop()
-            return
+        except:
+            self._cheibriados_queue.pop()
+            raise
 
     def _get_dcss_source(self, nick, message):
-        monster_pattern = r'unknown monster:|[^()|]+ \(.\) \|'
+        monster_pattern = r'Invalid|unknown|bad|[^()|]+ \(.\) \|'
         if nick == _conf.dcss["sequell_nick"]:
             match = re.match(r"^([a-z])([0-9]+):", message)
             prefix_msg = ("DCSS: Received Sequell message with invalid prefix: "
                           "{}".format(message))
             if not match:
-                _log.error(prefix_msg)
+                _log.warning("DCSS: Received Sequell message with invalid "
+                             "prefix: {}".format(message))
                 return
 
             slot_num = int(match.group(2))
@@ -233,7 +215,7 @@ class dcss_manager():
             ## Only accept what looks like the first part of a monster
             ## result or the first part of a git result.
             if (not re.match(monster_pattern, message)
-                and not "github.com" in message):
+                and not re.match(r"github\.com|Could not", message)):
                 _log.debug("DCSS: Ignored unrecognized message from "
                            "Cheibriados: %s", message)
                 return
@@ -274,44 +256,62 @@ class dcss_manager():
             # Remove relay prefix
             message = re.sub(r"^[a-z][0-9]+:", "", message)
             # Handle any relays to other bots
-            if _is_gretell_command(message):
-                yield from self._send_gretell_command(source, message)
+            try:
+                if _is_gretell_command(message):
+                    command_type = "Gretell"
+                    yield from self._send_gretell_command(source, message)
+                    return
+
+                elif _is_cheibriados_command(message):
+                    command_type = "Cheibriados"
+                    yield from self._send_cheibriados_command(source, message)
+                    return
+
+            except Exception as e:
+                _log.error("DCSS: Unable to relay %s command (service: %s, "
+                           "chat: %s, error: %s): %s ",
+                           command_type,
+                           config.service_data[source.service_name]["desc"],
+                           source.username, e.args[0], message)
                 return
 
-            elif _is_cheibriados_command(message):
-                self._send_cheibriados_command(source, message)
-                return
             # Sequell returns /me literally instead of using an IRC action, so
             # we do the dirty work here.
-            elif message[:4].lower() == "/me ":
+            if message.lower().startswith("/me "):
                 is_action = True
                 message = message[4:]
+
         elif (nick != _conf.dcss["gretell_nick"]
               and nick != _conf.dcss["cheibriados_nick"]):
             _log.info("DCSS: Ignoring message from %s: %s", nick, message)
             return
 
         yield from source.send_chat(message, is_action)
-        return
 
     @asyncio.coroutine
-    def read_command(self, source, user, message):
+    def read_command(self, source, requester, message):
         command_type = None
-        if _is_sequell_command(message):
-            command_type = "Sequell"
-            yield from self._send_sequell_command(source, user, message)
-        elif _is_gretell_command(message):
-            command_type = "Gretell"
-            yield from self._send_gretell_command(source, message)
-        elif _is_cheibriados_command(message):
-            command_type = "Cheibriados"
-            yield from self._send_cheibriados_command(source, message)
+        try:
+            if _is_sequell_command(message):
+                command_type = "Sequell"
+                yield from self._send_sequell_command(source, requester,
+                                                      message)
+            elif _is_gretell_command(message):
+                command_type = "Gretell"
+                yield from self._send_gretell_command(source, message)
+            elif _is_cheibriados_command(message):
+                command_type = "Cheibriados"
+                yield from self._send_cheibriados_command(source, message)
+        except Exception as e:
+            _log.error("DCSS: Unable to send %s command (service: %s, "
+                       "chat: %s, requester %s, error: %s): %s ", command_type,
+                       config.service_data[source.service_name]["desc"],
+                       source.username, requester, e.args[0], message)
         else:
-            return
-        _log.info("DCSS: Sent %s command from chat of %s user %s for %s: %s",
-                  command_type,
-                  config.service_data[source.service_name]["desc"],
-                  source.username, user, message)
+            _log.info("DCSS: Sent %s command (service: %s, chat: %s, "
+                      "requester: %s): %s",
+                      config.service_data[source.service_name]["desc"],
+                      command_type, source.username, requester, message)
 
 def _is_bad_pattern(command):
     if not _conf.dcss.get("bad_patterns"):
