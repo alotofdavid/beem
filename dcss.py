@@ -2,12 +2,16 @@ import asyncio
 import irc.client
 import logging
 import re
+import time
 
 import beem
 import config
 
 _conf = config.conf
 _log = logging.getLogger()
+
+_QUERY_ID_DIGITS = 2
+_MAX_REQUEST_TIME = 80
 
 class dcss_manager():
     ## Can't depend on config.conf, as this isn't loaded yet.
@@ -16,9 +20,6 @@ class dcss_manager():
         self._reactor = irc.client.Reactor()
         self._reactor.add_global_handler("all_events", self._dispatcher, -10)
         self._server = self._reactor.server()
-        self._slot_map = {}
-        for service in config.service_data:
-            self._slot_map[service] = {}
 
     @asyncio.coroutine
     def _connect(self):
@@ -26,8 +27,9 @@ class dcss_manager():
 
         self._messages = []
         self.logged_in = False
-        self._gretell_sources = []
-        self._cheibriados_sources = []
+        self._queries = {}
+        self._gretell_queue = []
+        self._cheibriados_queue = []
 
         if _conf.dcss.get("fake_connect"):
             self.logged_in = True
@@ -58,8 +60,9 @@ class dcss_manager():
 
         self._messages = []
         self.logged_in = False
-        self._gretell_sources = []
-        self._cheibriados_sources = []
+        self._queries = {}
+        self._gretell_queue = []
+        self._cheibriados_queue = []
 
     def is_connected(self):
         if _conf.dcss.get("fake_connect"):
@@ -134,16 +137,30 @@ class dcss_manager():
         nick = re.sub(r"([^!]+)!.*", r"\1", event.source)
         self._messages.append((nick, message))
 
-    def _update_slot_map(self, source):
-        source_key = source.get_source_key()
-        self._slot_map[source.service_name][source.slot_num] = source_key
+    def _make_query_id(self, source):
+        new_id = None
+        for i in range(0, 10 ** _QUERY_ID_DIGITS):
+            if i not in self._queries:
+                new_id = i
+                break
+
+            source_key, query_time = self._queries[i]
+            if time.time() - query_time >= _MAX_REQUEST_TIME:
+                new_id = i
+                break
+
+        if new_id is None:
+            raise Exception("too many queries in queue")
+
+        self._queries[new_id] = (source.get_source_key(), time.time())
+        return new_id
 
     @asyncio.coroutine
     def _send_sequell_command(self, source, user, command):
-        service = source.service_name
-        self._update_slot_map(source)
-        prefix = "{}{}:".format(config.service_data[service]["prefix"],
-                                source.slot_num)
+        query_id = self._make_query_id(source)
+
+        id_format = "{{:0{}}}".format(_QUERY_ID_DIGITS)
+        prefix = id_format.format(query_id)
         # Hack to make $p get assigned to the player for Sequell purposes.
         message = re.sub(r"\$p(?=\W|$)|\$\{p\}",
                          source.get_nick(source.username), command)
@@ -160,9 +177,8 @@ class dcss_manager():
 
     @asyncio.coroutine
     def _send_gretell_command(self, source, command):
-        service = source.service_name
-        self._update_slot_map(source)
-        self._gretell_sources.append((service, source.slot_num))
+        query_id = self._make_query_id(source)
+        self._gretell_queue.append(query_id)
 
         try:
             yield from self._send(_conf.dcss["gretell_nick"], command)
@@ -172,9 +188,8 @@ class dcss_manager():
 
     @asyncio.coroutine
     def _send_cheibriados_command(self, source, command):
-        service = source.service_name
-        self._update_slot_map(source)
-        self._cheibriados_sources.append((source.service_name, source.slot_num))
+        query_id = self._make_query_id(source)
+        self._cheibriados_queue.append(query_id)
 
         try:
             yield from self._send(_conf.dcss["cheibriados_nick"], command)
@@ -185,60 +200,60 @@ class dcss_manager():
     def _get_dcss_source(self, nick, message):
         monster_pattern = r'Invalid|unknown|bad|[^()|]+ \(.\) \|'
         if nick == _conf.dcss["sequell_nick"]:
-            match = re.match(r"^([a-z])([0-9]+):", message)
-            prefix_msg = ("DCSS: Received Sequell message with invalid prefix: "
-                          "{}".format(message))
+            match = re.match(r"^([0-9]{{{}}})".format(_QUERY_ID_DIGITS),
+                             message)
             if not match:
                 _log.warning("DCSS: Received Sequell message with invalid "
-                             "prefix: {}".format(message))
+                             "prefix: %s", message)
                 return
 
-            slot_num = int(match.group(2))
-            service = _get_service_by_prefix(match.group(1))
-            if not service:
-                _log.error(prefix_msg)
-                return
+            query_id = int(match.group(1))
 
         elif nick == _conf.dcss["gretell_nick"]:
             ## Only accept what looks like the first part of a monster result
             if not re.match(monster_pattern, message):
                 return
 
-            if not len(self._gretell_sources):
+            if not len(self._gretell_queue):
                 _log.error("DCSS: Received Gretell result but no request in "
                            "queue: %s", message)
                 return
 
-            service, slot_num = self._gretell_sources.pop(0)
+            query_id = self._gretell_queue.pop(0)
 
         elif nick == _conf.dcss["cheibriados_nick"]:
             ## Only accept what looks like the first part of a monster
             ## result or the first part of a git result.
             if (not re.match(monster_pattern, message)
-                and not re.match(r"github\.com|Could not", message)):
-                _log.debug("DCSS: Ignored unrecognized message from "
+                and not re.search(r"github\.com|^Could not", message)):
+                _log.debug("DCSS: Ignoring unrecognized message from "
                            "Cheibriados: %s", message)
                 return
 
-            if not len(self._cheibriados_sources):
+            if not len(self._cheibriados_queue):
                 _log.error("DCSS: Received Cheibriados result but no request in "
                            "queue: %s", message)
                 return
 
-            service, slot_num = self._cheibriados_sources.pop(0)
+            query_id = self._cheibriados_queue.pop(0)
         else:
             _log.warning("DCSS: Received message from unknown nick %s: %s",
                          nick, message)
             return
 
         try:
-            source_key = self._slot_map[service][slot_num]
+            source_key, query_time = self._queries[query_id]
+            del self._queries[query_id]
         except KeyError:
-            _log.warning("DCSS: Received %s message with unknown slot number "
-                         "in prefix: %s", nick, message)
+            _log.warning("DCSS: Received %s message with unknown query id: "
+                         "%s ", nick, message)
             return
 
-        source_manager = config.service_data[service]["manager"]
+        if time.time() - query_time >= _MAX_REQUEST_TIME:
+            _log.debug("DCSS: Ignoring old %s message: %s", nick, message)
+            return
+
+        source_manager = config.service_data[source_key[0]]["manager"]
         source = source_manager.get_source_by_key(source_key)
         if not source:
             _log.warning("DCSS: Ignoring %s message with unknown source: %s",
@@ -254,7 +269,8 @@ class dcss_manager():
         is_action = False
         if nick == _conf.dcss["sequell_nick"]:
             # Remove relay prefix
-            message = re.sub(r"^[a-z][0-9]+:", "", message)
+            message = re.sub(r"^[0-9]{{{}}}".format(_QUERY_ID_DIGITS), "",
+                             message)
             # Handle any relays to other bots
             try:
                 if _is_gretell_command(message):

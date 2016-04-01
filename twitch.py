@@ -14,10 +14,9 @@ _conf = config.conf
 _log = logging.getLogger()
 
 class twitch_channel(chat.chat_listener):
-    def __init__(self, slot_num, username):
+    def __init__(self, username):
         super().__init__()
         self.username = username
-        self.slot_num = slot_num
         self.service_name = "twitch"
         self.irc_channel = "#" + username
         self.bot_name = _conf.twitch["nick"]
@@ -26,7 +25,7 @@ class twitch_channel(chat.chat_listener):
         self.is_moderator = False
 
     def get_source_key(self):
-        return self.username
+        return (self.service_name, self.username)
 
     @asyncio.coroutine
     def send_chat(self, message, is_action=False):
@@ -82,7 +81,7 @@ class twitch_manager():
                 and time.time() - self._time_last_message > timeout)
 
     def get_source_by_key(self, source_key):
-        return self.get_channel(source_key)
+        return self.get_channel(source_key[1])
 
     @asyncio.coroutine
     def start(self):
@@ -211,29 +210,25 @@ class twitch_manager():
 
     @asyncio.coroutine
     def _new_channel(self, username):
-        slot_nums = list(range(0, _conf.twitch["max_listened_subscribers"]))
-        idle_chan = None
-        max_idle = -1
-        current_time = time.time()
-        for chan in self._channels:
-            if chan.slot_num in slot_nums:
-                slot_nums.remove(chan.slot_num)
-            idle_time = current_time - chan.time_last_message
-            if idle_time >= _conf.twitch["min_idle"] and idle_time >= max_idle:
-                idle_chan = chan
+        twconf = _conf.twitch
+        if len(self._channels) >= twconf["max_listened_subscribers"]:
+            idle_chan = None
+            max_idle = -1
+            for chan in self._channels:
+                idle_time = time.time() - chan.time_last_message
+                if idle_time >= twconf["min_idle"] and idle_time >= max_idle:
+                    idle_chan = chan
+                    break
 
-        if len(slot_nums):
-            chosen_slot = min(slot_nums)
-        elif idle_chan:
+            if not idle_chan:
+                return
+
             try:
                 yield from self._stop_listening(idle_chan)
             except:
                 return
-            chosen_slot = idle_chan.slot_num
-        else:
-            return
 
-        chan = twitch_channel(chosen_slot, username)
+        chan = twitch_channel(username)
         try:
             self._join_channel(chan)
         except:

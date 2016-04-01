@@ -223,14 +223,13 @@ class lobby_connection(webtiles_connection):
         return False
 
 class game_connection(webtiles_connection, chat.chat_listener):
-    def __init__(self, slot_num):
+    def __init__(self):
         super().__init__()
         self.service_name = "webtiles"
         self.bot_name = _conf.webtiles["username"]
         self.irc_channel = "WebTiles"
         self.username = None
         self.game_id = None
-        self.slot_num = slot_num
         # Last time we either send the listen command or had watched a game,
         # used so we can reuse connections, but end them after being idle for
         # too long.
@@ -240,7 +239,7 @@ class game_connection(webtiles_connection, chat.chat_listener):
         self.finished = False
 
     def get_source_key(self):
-        return (self.username, self.game_id)
+        return (self.service_name, self.username, self.game_id)
 
     def get_task(self):
         ## If we're finished, no further tasks made after the current one
@@ -507,21 +506,13 @@ class webtiles_manager():
         return
 
     def get_source_by_key(self, source_key):
-        return self._get_connection(source_key[0], source_key[1])
+        return self._get_connection(source_key[1], source_key[2])
 
     @asyncio.coroutine
     def _new_subscriber_conn(self, username, game_id):
-        # 0 is reserved for autolisten
-        slot_nums = list(range(1,
-                               _conf.webtiles["max_listened_subscribers"] + 1))
         listen_msg = ("WebTiles: Attempting to listen to subscribed user "
                       "{}".format(username))
         for conn in self._subscriber_conns:
-            if (not conn.finished
-                and conn.username
-                and conn.slot_num in slot_nums):
-                slot_nums.remove(conn.slot_num)
-
             if not conn.listening and not conn.finished:
                 _log.info(listen_msg)
                 try:
@@ -531,10 +522,11 @@ class webtiles_manager():
 
                 return conn
 
-        if not len(slot_nums):
+        wtconf = _conf.webtiles
+        if len(self._subscriber_conns) >= wtconf["max_listened_subscribers"]:
             return
 
-        conn = game_connection(min(slot_nums))
+        conn = game_connection()
         _log.info(listen_msg)
         try:
             yield from conn.listen_game(username, game_id)
@@ -664,7 +656,7 @@ class webtiles_manager():
                 _log.info("WebTiles: Attempting autolisten for user %s",
                           autolisten_username)
                 if not self._autolisten:
-                    self._autolisten = game_connection(0)
+                    self._autolisten = game_connection()
                 try:
                     yield from self._autolisten.listen_game(autolisten_username,
                                                             autolisten_game_id)
