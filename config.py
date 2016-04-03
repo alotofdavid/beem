@@ -5,7 +5,7 @@ import os
 import os.path
 import pytoml
 
-DEFAULT_CONFIG_PATH = "./beem_config.toml"
+_DEFAULT_CONFIG_PATH = "./beem_config.toml"
 
 class config_error(Exception):
     def __init__(self, config_file=None, msg=None):
@@ -20,7 +20,7 @@ class beem_config(object):
     One instance of this class should exist in the application.
     """
 
-    def __init__(self, path=DEFAULT_CONFIG_PATH):
+    def __init__(self, path=_DEFAULT_CONFIG_PATH):
         self._data = {}
         self.path = path
 
@@ -39,7 +39,7 @@ class beem_config(object):
 
         if not os.path.exists(self.path):
             errmsg = "Couldn't find the config file ({})!".format(self.path)
-            if (self.path == DEFAULT_CONFIG_PATH
+            if (self.path == _DEFAULT_CONFIG_PATH
                 and os.path.exists(self.path + ".sample")):
                 errmsg += (" Copy beem_config.toml.sample to beem_config.toml "
                            "and edit.")
@@ -47,7 +47,7 @@ class beem_config(object):
 
     def read(self):
         """
-        Reads the main toml configuration data from self.path
+        Reads the main TOML configuration data from self.path
         """
 
         self._check_path()
@@ -60,7 +60,7 @@ class beem_config(object):
             try:
                 self._data = pytoml.load(config_fh)
             except pytoml.TomlError as e:
-                _error("Couldn't parse toml file {} at line {}, col {}: "
+                _error("Couldn't parse TOML file {} at line {}, col {}: "
                        "{}".format(e.filename, e.line, e.col, e.message))
             finally:
                 config_fh.close()
@@ -154,7 +154,7 @@ class beem_config(object):
                     _error("In twitch table, {} undefined.".format(field))
 
     def service_enabled(self, service):
-        assert service in service_data
+        assert service in services
 
         return self.get(service) and self.get(service).get("enabled")
 
@@ -185,31 +185,38 @@ def _ensure_user_db_exists():
     if os.path.exists(conf.user_db):
         return
 
-    _log.warn("User database didn't exist; creating it now.")
+    _log.warn("User DB didn't exist; creating it now")
     c = None
     conn = None
+
     try:
         conn = sqlite3.connect(conf.user_db)
         c = conn.cursor()
-        schema = ("CREATE TABLE webtiles_users "
-                  "( "
-                  "  id              integer primary key, "
-                  "  username        text    collate nocase, "
-                  "  nick            text    collate nocase, "
-                  "  subscribed      integer, "
-                  "  twitch_user     text    collate nocase, "
-                  "  twitch_reminder integer"
-                  ");")
-        c.execute(schema)
 
-        schema = ("CREATE TABLE twitch_users "
-                  "( "
-                  "  id       integer primary key, "
-                  "  username text    collate nocase, "
-                  "  nick     text    collate nocase "
-                  ");")
-        c.execute(schema)
-        conn.commit()
+        for service in services:
+            user_fields = services[service]["user_fields"]
+            field_defaults = services[service]["user_field_defaults"]
+            statements = ["id integer primary key",
+                          "username text collate nocase"]
+            for i, f in enumerate(user_fields):
+                statement = f
+                if type(field_defaults[i]) is str:
+                    statement += " text collate nocase"
+                elif type(field_defaults[i]) is int:
+                    statement += " integer"
+                else:
+                    raise Exception("unknown type {} for field {}".format(
+                        user_fields[i], type(field_defaults[i])))
+                statements.append(statement)
+
+            schema = "CREATE TABLE {}_users ({});".format(service,
+                ", ".join(statements))
+            c.execute(schema)
+            conn.commit()
+
+    except sqlite3.Error as e:
+        raise Exception("sqlite3 table creation: {}".format(e.args[0]))
+
     finally:
         if c:
             c.close()
@@ -226,93 +233,66 @@ def load_user_db():
         conn = sqlite3.connect(conf.user_db)
         c = conn.cursor()
 
-        if conf.service_enabled("webtiles"):
-            _user_data["webtiles"] = {}
-            query = ("SELECT "
-                     "  username, "
-                     "  nick, "
-                     "  subscribed, "
-                     "  twitch_user, "
-                     "  twitch_reminder "
-                     "FROM webtiles_users")
+        for service in services:
+            _user_data[service] = {}
+            user_fields = services[service]["user_fields"]
+            fields_statement = "username, "
+            fields_statement += ", ".join(user_fields)
+            _user_data[service] = {}
+            query = ("SELECT {} FROM {}_users".format(fields_statement,
+                                                      service))
             for row in c.execute(query):
-                _user_data["webtiles"][row[0].lower()] = {
-                    "nick"            : row[1],
-                    "subscribed"      : row[2],
-                    "twitch_user"     : row[3],
-                    "twitch_reminder" : row[4]}
+                _user_data[service][row[0].lower()] = {
+                    f : row[i + 1] for i, f in enumerate(user_fields)}
 
-        if conf.service_enabled("twitch"):
-            query = ("SELECT "
-                     "  username, "
-                     "  nick "
-                     "FROM twitch_users")
-            _user_data["twitch"] = {}
-            for row in c.execute(query):
-                _user_data["twitch"][row[0].lower()] = {"nick" : row[1]}
     except sqlite3.Error as e:
-        _log.error("Error when reading user database %s: %s", conf.user_db,
-                   e.args[0])
-        raise
+        raise Exception("sqlite3 select: {}".format(e.args[0]))
+
     finally:
         if c:
             c.close()
         if conn:
             conn.close()
-    msg = ""
-    if conf.service_enabled("webtiles"):
-        msg += "{} WebTiles user(s)".format(len(_user_data["webtiles"]))
-    if conf.service_enabled("twitch"):
-        msg += ", " if msg else ""
-        msg += "{} Twitch user(s)".format(len(_user_data["twitch"]))
-    _log.info(msg)
+    msgs = []
+    for service in services:
+        msgs.append("{} users".format(services[service]["name"]))
+    _log.info("Loaded data for {} users".format(len(_user_data)))
 
-def register_user(source, sender, service, username):
+def register_user(service, username):
     conn = None
     c = None
 
-    if service == "webtiles":
-        fields = ["nick", "subscribed", "twitch_user", "twitch_reminder"]
-        values = ["", 0, "", 0]
-    elif service == "twitch":
-        fields = ["nick"]
-        values = [""]
-    else:
-        raise Exception("Unknown service {}".format(service))
-
-    fields_statement = ""
-    values_statement = ""
     user_entry = {}
-    for i, f in enumerate(fields):
-        suffix = ""
-        if i < len(fields) - 1:
-            suffix = ","
-        val = "''" if type(values[i]) is str else "0"
-        fields_statement += "{}{}".format(f, suffix)
-        values_statement += "{}{}".format(val, suffix)
-        user_entry[f] = values[i]
+    vals = []
+    user_fields = services[service]["user_fields"]
+    default_values = services[service]["user_field_defaults"]
+    for i, f in enumerate(user_fields):
+        if type(user_fields[i]) is str:
+            vals.append("'{}'".format(default_values[i]))
+        else:
+            vals.append(str(default_values[i]))
+        user_entry[f] = default_values[i]
+
+    fields_statement = ", ".join(user_fields)
+    values_statement = ", ".join(vals)
+
     try:
         conn = sqlite3.connect(conf.user_db)
         c = conn.cursor()
-        statement = ("SELECT username "
-                     "FROM {}_users "
+        statement = ("SELECT id FROM {}_users "
                      "WHERE username=? collate nocase".format(service))
         c.execute(statement, (username,))
         if c.fetchone():
-            raise Exception("User already registered")
+            raise Exception("user already registered")
 
-        statement = ("INSERT INTO {}_users "
-                     "  (username,{}) VALUES (?,{})".format(
-                         service, fields_statement, values_statement))
+        statement = ("INSERT INTO {}_users (username, {}) "
+                     "VALUES (?, {})".format(service, fields_statement,
+                                             values_statement))
         c.execute(statement, (username,))
         conn.commit()
 
-    except Exception as e:
-        _log.error("%s: Unable to register user (listen user: %s, request "
-                   "user: %s, target user: %s): %s",
-                   service_data[source.service_name]["desc"], source.username,
-                   sender, username, e.args[0])
-        raise
+    except sqlite3.Error as e:
+        raise Exception("sqlite3: {}".format(e.args[0]))
 
     finally:
         if c:
@@ -321,17 +301,19 @@ def register_user(source, sender, service, username):
             conn.close()
 
     _user_data[service][username.lower()] = user_entry
-    _log.info("%s: Did user registration (listen user: %s, request user: %s, "
-              "target user: %s)",
-              service_data[source.service_name]["desc"], source.username,
-              sender, username)
+    return user_entry
 
-def set_user_field(source, sender, service, username, field, value):
+def set_user_field(service, username, field, value):
+    entry = get_user_data(service, username)
+    if not entry:
+        raise Exception("user not found")
+
     conn = None
     c = None
     try:
         conn = sqlite3.connect(conf.user_db)
         c = conn.cursor()
+
         statement= ("UPDATE {}_users "
                     "SET    {} = ? "
                     "WHERE  username = ?".format(service, field))
@@ -339,36 +321,23 @@ def set_user_field(source, sender, service, username, field, value):
         conn.commit()
 
     except sqlite3.Error as e:
-        _log.error("%s: Unable to complete DB request (listen user: %s, "
-                   "request user: %s, target user: %s, field: %s, value: %s): "
-                   "%s", service_data[source.service_name]["desc"],
-                   source.username, sender, username, field, str(value),
-                   e.args[0])
-        raise
+        raise Exception("sqlite3: {}".format(e.args[0]))
 
     finally:
         if c:
             c.close()
         if conn:
             conn.close()
-    _user_data[service][username.lower()][field] = value
-    _log.info("%s: Did User DB request (listen user: %s, request user: %s, "
-              "target user: %s, field: %s, value: %s)",
-              service_data[source.service_name]["desc"], source.username,
-              sender, username, field, str(value))
+
+    entry[field] = value
 
 def get_user_data(service, username):
     return _user_data[service].get(username.lower())
 
-def register_service(name, description, prefix, manager):
-    service_data[name] = {"desc"    : description,
-                          "prefix"  : prefix,
-                          "manager" : manager}
-
 def _error(msg):
     raise config_error(conf.path, msg)
 
-service_data = {}
+services = {}
 _user_data = {}
 conf = beem_config()
 _log = logging.getLogger()

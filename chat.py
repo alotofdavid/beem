@@ -9,46 +9,15 @@ import dcss
 _conf = config.conf
 _log = logging.getLogger()
 
-_command_data = {
-    "subscribe" : {
-        "services" : ["webtiles"],
-        "arg_pattern" : None,
-        "arg_description" : None},
-    "unsubscribe" : {
-        "services" : ["webtiles"],
-        "arg_pattern" : None,
-        "arg_description" : None},
-    "nick" : {
-        "services" : ["webtiles", "twitch"],
-        "arg_pattern" : r'^[a-zA-Z0-9-]{2,}$',
-        "arg_description" : "<nick>"},
-    "twitch-user" : {
-        "services" : ["webtiles"],
-        "arg_pattern" : r'^[a-zA-Z0-9][a-zA-Z0-9_]{3,24}$',
-        "arg_description" : "<twitch-username>"},
-    "twitch-reminder" : {
-        "services" : ["webtiles"],
-        "arg_pattern" : r'^(on|off)$',
-        "arg_description" : "on|off"},
-    "join" : {
-        "services" : ["twitch"],
-        "arg_pattern" : None,
-        "arg_description" : None},
-    "part" : {
-        "services" : ["twitch"],
-        "arg_pattern" : None,
-        "arg_description" : None}}
-
 class chat_listener():
     def __init__(self):
         super().__init__()
         self.spectators = set()
-        self._command_count = 0
-        self._time_last_command = None
+        self._message_times = []
 
     def stop_listening(self):
         self.spectators = set()
-        self._command_count = 0
+        self._message_times = []
 
     def _is_beem_command(self, message):
         pattern = r'!{} +[^ ]'.format(self.bot_name)
@@ -61,7 +30,7 @@ class chat_listener():
     @asyncio.coroutine
     def _send_command_usage(self, command, in_service):
         msg = "Usage: {} {}".format(self.bot_name, command)
-        msg += " {}".format(self.service_name) if not in_service else ""
+        msg += " {}".format(self.service) if not in_service else ""
         if _command_data[command]["arg_description"]:
             msg += " [{}]".format(_command_data[command]["arg_description"])
         yield from self.send_chat(msg)
@@ -72,35 +41,10 @@ class chat_listener():
         message = re.sub(r' +$', "", message)
         args = re.split(r' +', message)
         single_user_commands = ["register", "nick"]
-        admin = _conf.user_is_admin(self.service_name, sender)
-        service = self.service_name
-        if not admin and self._command_count >= _conf.command_limit:
-            _log.info("%s: Command from %s in chat of %s ignored due to "
-                      "command limit: %s", config.service_data[service]["desc"],
-                      sender, self.username, message)
-            return
-
+        admin = _conf.user_is_admin(self.service, sender)
         command = args.pop(0).lower()
         if command == "help":
             yield from self.send_chat(_conf.help_text)
-            return
-
-
-        if command in config.service_data:
-            if not len(args):
-                yield from self.send_chat("Invalid command")
-                return
-
-            service = command
-            command = args.pop(0).lower()
-
-        if (not _conf.service_enabled(service)
-            or (command.startswith("twitch")
-                and not _conf.service_enabled("twitch"))
-            or (_conf.get("single_user")
-                and not admin
-                and command not in single_user_commands)):
-            yield from self.send_chat("Invalid command")
             return
 
         if admin and args and args[0].startswith("@"):
@@ -108,41 +52,54 @@ class chat_listener():
         else:
             target_user = sender
 
-        in_service = service == self.service_name
-        service_desc = config.service_data[service]["desc"]
         found = False
-        for name, entry in _command_data.items():
+        command_func = None
+        for name, entry in config.services[self.service]["commands"].items():
             if name != command:
                 continue
 
-            if (not service in entry["services"]
-                # Don't allow non-admins to set twitch-user
-                or name == "twitch-user" and len(args) and not admin):
-                yield from self.send_chat("Command not allowed")
+            # Don't allow non-admins to set twitch-user
+            if (name == "twitch-user" and len(args) and not admin):
+                yield from self.send_chat("Twitch usernames for WebTiles "
+                                          "accounts must be set by an admin")
                 return
 
             if (args and not entry["arg_pattern"]
                 or len(args) > 1
                 or args and not re.match(entry["arg_pattern"], args[0])):
-                yield from self._send_command_usage(command, in_service)
+                yield from self._send_command_usage(command)
                 return
 
-            found = True
+            command_func = entry["function"]
             break
 
-        if not found:
-            yield from self.send_chat("Unknown command")
+        if not command_func:
+            yield from self.send_chat("Unkown command. Type !{} help for "
+                                      "assistance".format(self.bot_name))
             return
 
-        if not admin:
-            self._time_last_command = time.time()
-            self._command_count += 1
-        manager = config.service_data[service]["manager"]
-        yield from manager.beem_command(self, sender, target_user, command,
-                                        args)
+        try:
+            if args:
+                yield from command_func(self, target_user, args[0])
+            else:
+                yield from command_func(self, target_user)
+
+        except Exception as e:
+            err_reason = type(e).__name__
+            if len(e.args):
+                err_reason = e.args[0]
+            _log.error("%s: Unable to handle beem command (listen user: %s, "
+                       "request user: %s, target user: %s, error: %s): %s",
+                       config.services[self.service]["name"],
+                       self.username, sender, target_user, e.args[0], command)
+        else:
+            _log.info("%s: Did beem command (listen user: %s, request user: %s, "
+                      "target user: %s): %s",
+                      config.services[self.service]["name"], self.username,
+                      sender, target_user, command)
 
     def get_nick(self, username):
-        user_data = config.get_user_data(self.service_name, username)
+        user_data = config.get_user_data(self.service, username)
         if not user_data or not user_data["nick"]:
             return username
 
@@ -155,12 +112,12 @@ class chat_listener():
                     _log.debug("DCSS: Bad pattern message: %s", message)
                     return True
 
-        bad_patterns = _conf.get(self.service_name).get("bad_patterns")
+        bad_patterns = _conf.get(self.service).get("bad_patterns")
         if bad_patterns:
             for pat in bad_patterns:
                 if re.search(pat, message):
                     _log.debug("%s: Bad %s pattern message: %s",
-                               config.service_data[self.service_name]["desc"],
+                               config.services[self.service]["name"],
                                message)
                     return True
 
@@ -168,20 +125,60 @@ class chat_listener():
 
     @asyncio.coroutine
     def read_chat(self, sender, message):
-        time_last = self._time_last_command
-        if (time_last and time.time() - time_last > _conf.command_timeout):
-            self._command_count = 0
-
         if not self._is_allowed_user(sender):
             return
 
         if self._is_bad_pattern(message):
             return
 
-        if self._is_beem_command(message):
+        beem_command = self._is_beem_command(message)
+        if not beem_command and not dcss.is_dcss_command(message):
+            return
+
+        admin = _conf.user_is_admin(self.service, sender)
+        current_time = time.time()
+        for timestamp in list(self._message_times):
+            if current_time - timestamp >= _conf.command_period:
+                self._message_times.remove(timestamp)
+        if not admin:
+            if len(self._message_times) >= _conf.command_limit:
+                _log.info("%s: Command ignored due to command limit (listen "
+                          "user: %s, requester: %s): %s",
+                          config.services[self.service]["name"], self.username,
+                          sender, message)
+                return
+
+            self._message_times.append(current_time)
+
+        if beem_command:
             yield from self._read_beem_command(sender, message)
-        elif dcss.is_dcss_command(message):
+        # If we're listening in the chat of the bot itself, only
+        # respond to beem commands. This is something we do for
+        # Twitch, allowing users to make the Twitch beem commands from
+        # the bot's channel.
+        elif self.username != self.bot_name:
             yield from dcss.manager.read_command(self, sender, message)
+
+
+@asyncio.coroutine
+def nick_command(source, target_user, nick=None):
+    _log.info("nicky")
+    user_data = config.get_user_data(source.service, target_user)
+    if not nick:
+        if not user_data or not user_data["nick"]:
+            yield from source.send_chat(
+                "No nick for user {}".format(target_user))
+        else:
+            yield from source.send_chat(
+                "Nick for user {}: {}".format(target_user, user_data["nick"]))
+        return
+
+    if not user_data:
+        user_data = config.register_user(source.service, target_user)
+
+    config.set_user_field(source.service, target_user, "nick", nick)
+    yield from source.send_chat(
+        "Nick for user {} set to {}".format(target_user, nick))
 
 def is_bot_command(message):
     """Messages that might get parsed by other bots and will need escaping"""

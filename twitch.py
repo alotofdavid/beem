@@ -1,5 +1,6 @@
 import asyncio
 import irc.client
+import functools
 import logging
 import os
 import re
@@ -17,7 +18,7 @@ class twitch_channel(chat.chat_listener):
     def __init__(self, username):
         super().__init__()
         self.username = username
-        self.service_name = "twitch"
+        self.service = "twitch"
         self.irc_channel = "#" + username
         self.bot_name = _conf.twitch["nick"]
         self._message_count = 0
@@ -25,7 +26,7 @@ class twitch_channel(chat.chat_listener):
         self.is_moderator = False
 
     def get_source_key(self):
-        return (self.service_name, self.username)
+        return (self.service, self.username)
 
     @asyncio.coroutine
     def send_chat(self, message, is_action=False):
@@ -42,11 +43,7 @@ class twitch_channel(chat.chat_listener):
 class twitch_manager():
     # Can't depend on config.conf, as the data for this isn't loaded yet.
     def __init__(self):
-        self.messages = None
-        self._message_count = 0
         self._channels = set()
-        self._listen_queue = []
-        self._time_last_message = None
         self._reactor = irc.client.Reactor()
         self._reactor.add_global_handler("all_events", self._dispatcher, -10)
         self._server = self._reactor.server()
@@ -55,7 +52,15 @@ class twitch_manager():
     def _connect(self):
         """Connect to Twitch IRC"""
 
+        self._messages = []
+        self._message_count = 0
+        self._channels = set()
+        self._time_last_message = None
+        self._sent_normal_message = False
+        self._logged_in = False
+        self._bot_channel = twitch_channel(_conf.twitch["nick"])
         if _conf.twitch.get("fake_connect"):
+            self._logged_in = True
             return
 
         if self._server.is_connected():
@@ -68,9 +73,12 @@ class twitch_manager():
                              None, _conf.twitch["nick"])
         # To get JOIN/PART/USER data
         self._server.cap("REQ", ":twitch.tv/membership")
+        self._join_channel(self._bot_channel)
+        self._logged_in = True
 
     def is_connected(self):
-        if _conf.twitch.get("fake_connect"):
+        # Make sure _connect() is run once even under fake_connect
+        if _conf.twitch.get("fake_connect") and self._logged_in:
             return True
 
         return self._server.is_connected()
@@ -85,9 +93,9 @@ class twitch_manager():
 
     @asyncio.coroutine
     def start(self):
-        self._messages = []
         self._listen_queue = []
         _log.info("Twitch: Starting manager")
+        print("Twitch: Starting manager")
         while True:
             while not self.is_connected():
                 try:
@@ -126,13 +134,21 @@ class twitch_manager():
             ## This seems needed to give other coroutines a chance to run.
             yield from asyncio.sleep(0.1)
 
-    def stop(self):
-        if not _conf.twitch.get("fake_connect") and self._server.is_connected():
-            self._server.disconnect()
+    def disconnect(self):
+        """Disconnect Twitch IRC. This will log any disconnection error, but never
+        raise.
 
-        self._messages = []
-        self._channels = set()
-        self._listen_queue = []
+        """
+        if _conf.twitch.get("fake_connect") or not self._server.is_connected():
+            return
+
+        try:
+            self._server.disconnect()
+        except Exception as e:
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
+            _log.error("Twitch: Error when disconnecting: %s", err_reason)
 
     def _dispatcher(self, connection, event):
         """
@@ -165,12 +181,6 @@ class twitch_manager():
                  "time_request" : None}
         self._listen_queue.append(entry)
 
-    def remove_queue(self, username):
-        for entry in list(self._listen_queue):
-            if entry["username"] == username:
-                self._listen_queue.remove(entry)
-                return
-
     def _get_queue_entry(self, username):
         for entry in self._listen_queue:
             if entry["username"] == username:
@@ -179,36 +189,32 @@ class twitch_manager():
         return
 
     def get_channel(self, username):
+        if username == _conf.twitch["nick"]:
+            return self._bot_channel
+
         for chan in self._channels:
             if chan.username == username:
                 return chan
 
         return
 
-    @asyncio.coroutine
     def _stop_listening(self, channel):
+        self._channels.remove(channel)
+        if self._message_limited(True):
+            raise Exception("reached message limit")
+
+        self._sent_normal_message = True
+        self._message_count += 1
+        if _conf.twitch.get("fake_connect"):
+            return
+
         try:
-            if self._message_limited(True):
-                raise Exception("Reached message limit")
-
-            self._sent_normal_message = True
-            if _conf.twitch.get("fake_connect"):
-                return
-
             self._server.part(channel.irc_channel)
-
-        except Exception as e:
-            _log.error("Twitch: Unable to sending part message to %s: %s",
-                       channel.irc_channel, e.args[0])
-            raise
-
+        except irc.client.IRCError as e:
+            raise Exception("irc error: {}".format(e.args[0]))
         else:
             _log.info("Twitch: Leaving channel of user %s", channel.username)
 
-        finally:
-            self._channels.remove(channel)
-
-    @asyncio.coroutine
     def _new_channel(self, username):
         twconf = _conf.twitch
         if len(self._channels) >= twconf["max_listened_subscribers"]:
@@ -223,20 +229,14 @@ class twitch_manager():
             if not idle_chan:
                 return
 
-            try:
-                yield from self._stop_listening(idle_chan)
-            except:
-                return
+            chan = idle_chan
+            self._stop_listening(idle_chan)
+        else:
+            chan = twitch_channel(username)
 
-        chan = twitch_channel(username)
-        try:
-            self._join_channel(chan)
-        except:
-            return
-
-        _log.info("Twitch: Joining channel of user %s", username)
+        self._join_channel(chan)
         self._channels.add(chan)
-        return chan
+        _log.info("Twitch: Joining channel of user %s", username)
 
     @asyncio.coroutine
     def _update_queue(self):
@@ -254,10 +254,15 @@ class twitch_manager():
             if (chan
                 and (not able or not allowed or entry["parted"] or expired)):
                 try:
-                    yield from self._stop_listening(chan)
-                # If there's an error parting, leave the entry to the next
-                # update.
-                except:
+                    self._stop_listening(chan)
+                except Exception as e:
+                    err_reason = type(e).__name__
+                    if e.args:
+                        err_reason = e.args[0]
+                    _log.error("Twitch: Unable to send part message for user "
+                               "%s: ", chan.username, err_reason)
+                    # If there's an error parting, leave the entry to the next
+                    # update.
                     continue
 
             if not allowed or entry["parted"] or expired:
@@ -267,7 +272,14 @@ class twitch_manager():
             if chan:
                 continue
 
-            yield from self._new_channel(entry["username"])
+            try:
+                self._new_channel(entry["username"])
+            except Exception as e:
+                err_reason = type(e).__name__
+                if e.args:
+                    err_reason = e.args[0]
+                _log.error("Twitch: Unable to join channel for user %s: "
+                           "%s", entry["username"], err_reason)
 
     def _message_limited(self, is_normal):
         if is_normal or self._sent_normal_message:
@@ -278,20 +290,14 @@ class twitch_manager():
 
     def _join_channel(self, channel):
         if self._message_limited(True):
-            msg = ("Twitch: Didn't send join message for user {} due to "
-                   "message limit".format(channel.username))
-            _log.info(msg)
-            raise Exception(msg)
+            raise Exception("reached message limit")
 
         self._sent_normal_message = True
+        self._message_count += 1
         if _conf.twitch.get("fake_connect"):
             return
 
-        try:
-            self._server.join(channel.irc_channel)
-        except irc.client.IRCError as e:
-            _log.error("Twitch: Unable to send join message for user %s: %s",
-                       channel.username, e.args[0])
+        self._server.join(channel.irc_channel)
 
     def send_channel(self, channel, message, is_action=False):
 
@@ -321,106 +327,50 @@ class twitch_manager():
         self._message_count += 1
 
     @asyncio.coroutine
-    def beem_command(self, source, sender, user, command, args):
-        twconf = _conf.twitch
-        bot_name = twconf["nick"]
-
-        target_user = user
-        if source.service_name == "webtiles":
-            webtiles_data = config.get_user_data("webtiles", user)
-            if not webtiles_data:
-                yield from source.send_chat(
-                    "WebTiles user {} is not registered.".format(user))
-                return
-
-            target_user = webtiles_data["twitch_user"]
-            if not target_user:
-                yield from source.send_chat(
-                    "You must have an admin link to your WebTiles username to "
-                    "your Twitch username")
-                return
-
+    def join_command(self, source, target_user):
         user_data = config.get_user_data("twitch", target_user)
-        if command == "nick":
-            if not args:
-                if not user_data or not user_data["nick"]:
-                    yield from source.send_chat(
-                        "No nick for Twitch user {}".format(target_user))
-                else:
-                    yield from source.send_chat(
-                        "Nick for Twitch user {}: {}".format(
-                            target_user, user_data["nick"]))
-                return
-
-            if not user_data:
-                try:
-                    config.register_user(source, sender, "twitch", target_user)
-                except:
-                    yield from source.send_chat("Error when registering")
-                    return
-
-                user_data = config.get_user_data("twitch", target_user)
-
-            try:
-                if user_data["nick"] != args[0]:
-                    config.set_user_field(source, sender, "twitch",
-                                          target_user, "nick", args[0])
-            except:
-                yield from source.send_chat("Error when setting nick")
-                return
-
+        if not user_data:
             yield from source.send_chat(
-                "Nick for Twitch user {} set to {}".format(
-                    target_user, args[0]))
+                "Twitch user {} is not registered".format(target_user))
             return
 
-        if command == "join":
-            if self.get_channel(target_user):
-                yield from source.send_chat(
-                    "Already in chat of Twitch user {}".format(target_user))
-                return
-
-            if not user_data:
-                yield from source.send_chat(
-                    "Twitch user {} is not registered".format(target_user))
-                return
-
-            entry = self._get_queue_entry(target_user)
-            if entry:
-                yield from source.send_chat(
-                    "Join request for Twitch user {} is already in the "
-                    "queue".format(target_user))
-            else:
-                self._add_queue(target_user)
-                yield from source.send_chat(
-                    "Join request added, {} will join Twitch chat of user "
-                    "{} soon".format(bot_name, target_user))
+        if self.get_channel(target_user):
+            yield from source.send_chat(
+                "Already in chat of Twitch user {}".format(target_user))
             return
 
-        if command == "part":
-            chan = self.get_channel(target_user)
-            if not chan:
-                yield from source.send_chat(
-                    "Not in chat of user {}".format(target_user))
-                return
+        entry = self._get_queue_entry(target_user)
+        if entry:
+            yield from source.send_chat(
+                "Join request for Twitch user {} is already in the "
+                "queue".format(target_user))
+            return
 
-            try:
-                yield from self._stop_listening(chan)
-            except:
-                yield from source.send_chat(
-                    "Error when trying to part Twitch chat")
-                return
+        self._add_queue(target_user)
+        yield from source.send_chat(
+            "Join request added, {} will join Twitch chat of user "
+            "{} soon".format(_conf.twitch["nick"], target_user))
 
-            finally:
-                entry = self._get_queue_entry(target_user)
-                if entry:
-                    entry["parted"] = True
+    @asyncio.coroutine
+    def part_command(self, source, target_user):
+        user_data = config.get_user_data("twitch", target_user)
+        if not user_data:
+            yield from source.send_chat(
+                "Twitch user {} is not registered".format(target_user))
+            return
 
-            # Don't send a message to the channel we've just parted.
-            if (source.service_name != "twitch"
-                or source.username != target_user):
-                yield from source.send_chat(
-                    "Leaving Twitch chat of user {}".format(target_user))
+        chan = self.get_channel(target_user)
+        if not chan:
+            yield from source.send_chat(
+                "Not in chat of Twitch user {}".format(target_user))
+            return
+
+        self._stop_listening(chan)
+        entry = self._get_queue_entry(target_user)
+        if entry:
+            entry["parted"] = True
+        yield from source.send_chat(
+            "Leaving Twitch chat of user {}".format(target_user))
 
 
 def _can_listen_user(user):
@@ -444,4 +394,26 @@ def _able_to_listen():
 
 
 manager = twitch_manager()
-config.register_service("twitch", "Twitch", "t", manager)
+config.services["twitch"] = {
+    "name"                : "WebTiles",
+    "manager"             : manager,
+    "user_fields"         : ["nick"],
+    "user_field_defaults" : [""],
+    "commands"            : {
+        "nick" : {
+            "arg_pattern" : r"^[a-zA-Z0-9_-]+$",
+            "arg_description" : "<nick>",
+            "function" : chat.nick_command
+        },
+        "join" : {
+            "arg_pattern" : None,
+            "arg_description" : None,
+            "function" : manager.join_command
+        },
+        "part" : {
+            "arg_pattern" : None,
+            "arg_description" : None,
+            "function" : manager.part_command
+        },
+    }
+}

@@ -38,12 +38,16 @@ class beem_server:
         try:
             _conf.read()
         except config.config_error as e:
-            _log.error(e.msg)
+            _log.critical(e.msg)
             sys.exit(1)
 
         try:
             config.load_user_db()
-        except:
+        except Exception as e:
+            err_reason = type(e).__name__
+            if len(e.args):
+                err_reason = e.args[0]
+            _log.critical("Unable to load user DB: %s", err_reason)
             sys.exit(1)
 
     def start(self):
@@ -69,29 +73,19 @@ class beem_server:
         _log.info("Stopping beem server.")
         self._shutdown_error = is_error
 
-        try:
-            dcss.manager.stop()
-        except Exception as e:
-            _log.error("DCSS: Error while disconnecting: %s", e.args[0])
+        dcss.manager.disconnect()
 
         if self._dcss_task and not self._dcss_task.done():
             self._dcss_task.cancel()
 
         if _conf.service_enabled("twitch"):
-            #try:
-            twitch.manager.stop()
-            #except Exception as e:
-            #    _log.error("Twitch: Error while disconnecting: %s", e.args[0])
+            twitch.manager.disconnect()
 
             if self._twitch_task and not self._twitch_task.done():
                 self._twitch_task.cancel()
 
         if _conf.service_enabled("webtiles"):
-            try:
-                yield from webtiles.manager.stop()
-            except Exception as e:
-                _log.error("WebTiles: Error while stopping WebTiles: %s",
-                           e.args[0])
+            yield from webtiles.manager.stop()
 
             if self._webtiles_task and not self._webtiles_task.done():
                 self._webtiles_task.cancel()

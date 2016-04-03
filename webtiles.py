@@ -37,8 +37,6 @@ class webtiles_connection():
         assert(not self.connected())
 
         wtconf = _conf.webtiles
-        self._time_connected = None
-        self._logged_in = False
         websocket_url = wtconf["server_urls"][_conf.webtiles["server"]]
 
         try:
@@ -54,9 +52,11 @@ class webtiles_connection():
             yield from self._send({"msg"      : "login",
                                    "username" : wtconf["username"],
                                    "password" : wtconf["password"]})
-        except ConnectionClosed:
-            _log.error("WebTiles: Websocket connection to closed while sending "
-                       "login")
+        except Exception as e:
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
+            _log.error("WebTiles: Unable to send login: %s", err_reason)
             yield from self.stop()
             raise
 
@@ -75,23 +75,22 @@ class webtiles_connection():
                 yield from self._websocket.close()
             except:
                 pass
-        self._time_connected = None
         self._websocket = None
+        self._time_connected = None
         self._logged_in = False
 
     @asyncio.coroutine
     def _read(self):
+        """Try to read a WebSocket message. Raises Exception if a read error
+        occurs. This function returns None if we can't parse the JSON, since
+        some older game versions send bad messages we need to ignore.
+
+        """
 
         try:
             comp_data = yield from self._websocket.recv()
-        except ConnectionClosed:
-            _log.error("WebTiles: Websocket connection closed during read")
-            return
-
-        except Exception as e:
-            _log.error(
-                "WebTiles: Websocket read error from {}: {}".format(e.args[0]))
-            return
+        except ConnectionClosed as e:
+            raise Exception("connection closed: {}".format(e.args[1]))
 
         comp_data += bytes([0, 0, 255, 255])
         json_message = self._decomp.decompress(comp_data)
@@ -103,8 +102,8 @@ class webtiles_connection():
             # Invalid JSON happens with data sent from older games (0.11 and
             # below), so don't spam the log with these. XXX can we ignore only
             # those messages and log other parsing errors?
-            _log.debug("WebTiles: Cannot parse JSON (%s): %s.", e.args[0],
-                       json_message)
+            _log.debug("WebTiles: Ignoring unparseable JSON (error: %s): %s.",
+                       e.args[0], json_message)
             return
 
         if "msgs" in message:
@@ -112,14 +111,17 @@ class webtiles_connection():
         elif "msg" in message:
             messages = [message]
         else:
-            _log.error("WebTiles: JSON doesn't define either 'msg' or 'msgs'")
-            return
+            raise Exception("JSON doesn't define either 'msg' or 'msgs'")
 
         return messages
 
     @asyncio.coroutine
     def _send(self, message):
-        yield from self._websocket.send(json.dumps(message))
+        try:
+            yield from self._websocket.send(json.dumps(message))
+        except ConnectionClosed as e:
+            raise Exception("connection closed: {}".format(e.args[1]))
+
         _log.debug("WebTiles: Sent message: %s", message["msg"])
 
     @asyncio.coroutine
@@ -135,7 +137,8 @@ class webtiles_connection():
 
         if message["msg"] == "login_fail":
             ## Very bad, shut down the server.
-            _log.error("WebTiles: Login failed; shutting down server.")
+            _log.critical("WebTiles: Login to %s failed; shutting down server.",
+                          _conf.webtiles["server"])
             os.kill(os.getpid(), signal.SIGTERM)
             return True
 
@@ -175,7 +178,16 @@ class lobby_connection(webtiles_connection):
             yield from self._websocket.close()
             return
 
-        messages = yield from self._read()
+        messages = None
+        try:
+            messages = yield from self._read()
+        except Exception as e:
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
+            _log.error("WebTiles: Unable to read lobby WebSocket: %s",
+                       err_reason)
+            yield from self.stop()
 
         if not messages:
             return
@@ -225,7 +237,7 @@ class lobby_connection(webtiles_connection):
 class game_connection(webtiles_connection, chat.chat_listener):
     def __init__(self):
         super().__init__()
-        self.service_name = "webtiles"
+        self.service = "webtiles"
         self.bot_name = _conf.webtiles["username"]
         self.irc_channel = "WebTiles"
         self.username = None
@@ -239,7 +251,7 @@ class game_connection(webtiles_connection, chat.chat_listener):
         self.finished = False
 
     def get_source_key(self):
-        return (self.service_name, self.username, self.game_id)
+        return (self.service, self.username, self.game_id)
 
     def get_task(self):
         ## If we're finished, no further tasks made after the current one
@@ -291,7 +303,17 @@ class game_connection(webtiles_connection, chat.chat_listener):
         yield from self._handle_greeting()
         yield from self._handle_reminder()
 
-        messages = yield from self._read()
+        try:
+            messages = yield from self._read()
+        except Exception as e:
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
+            _log.error("WebTiles: Unable to read game WebSocket (listen user: "
+                       "%s): %s", self.username, err_reason)
+            yield from self.stop()
+
+
         if not messages:
             return
 
@@ -318,11 +340,11 @@ class game_connection(webtiles_connection, chat.chat_listener):
         user_data = config.get_user_data("webtiles", self.username)
         reminder_period = _conf.webtiles["twitch_reminder_period"]
         if (not user_data
-            or not user_data["twitch_user"]
+            or not user_data["twitch_username"]
             or not user_data["twitch_reminder"]):
             return
 
-        chan = twitch.manager.get_channel(user_data["twitch_user"])
+        chan = twitch.manager.get_channel(user_data["twitch_username"])
         if not chan:
             return
 
@@ -338,12 +360,17 @@ class game_connection(webtiles_connection, chat.chat_listener):
         msg = _conf.webtiles["twitch_reminder_text"].replace("\n", " ")
         msg = msg.replace("%us", user_possessive)
         msg = msg.replace("%u", self.username)
-        msg = msg.replace("%t", user_data["twitch_user"])
+        msg = msg.replace("%t", user_data["twitch_username"])
         yield from self.send_chat(msg)
         self._last_reminder_time = time.time()
 
     @asyncio.coroutine
     def send_chat(self, message, is_action=False):
+        """Send WebTiles chat message. This will shut down the game connection if
+        an error occurs and log the event, but not raise to the caller.
+
+        """
+
         if is_action:
             message = "*{}* {}".format(_conf.webtiles["username"], message)
         # In case any other beem bot happens to listen in the same
@@ -353,18 +380,12 @@ class game_connection(webtiles_connection, chat.chat_listener):
 
         try:
             yield from self._send({"msg" : "chat_msg", "text" : message})
-        except ConnectionClosed:
-            _log.error("WebTiles: Websocket for user %s closed when sending "
-                       "chat", self.username)
-            # The connection will attempt reconnect.
-            return
         except Exception as e:
-            _log.error("WebTiles: Websocket error for user %s when sending "
-                       "chat: %s", self.username, e.args[0])
-            # We don't raise these errors because they're not important to
-            # handle in terms of manager state. Just shutting down the
-            # connection and let the manager try to make a new one if the game
-            # is still (or becomes) active.
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
+            _log.error("WebTiles: Unable to send chat message (listen user: "
+                       "%s, error: %s): %s", self.username, err_reason, message)
             yield from self.stop()
             return
 
@@ -373,7 +394,7 @@ class game_connection(webtiles_connection, chat.chat_listener):
         self.username = username
         self.game_id = game_id
         user_data = config.get_user_data("webtiles", username)
-        if (user_data and user_data["subscribed"]
+        if (user_data and user_data["subscription"] > 0
             or _conf.user_is_admin("webtiles", username)):
             self._need_greeting = False
         else:
@@ -385,9 +406,9 @@ class game_connection(webtiles_connection, chat.chat_listener):
         try:
             yield from self._send({"msg"      : "watch",
                                    "username" : self.username})
-        except ConnectionClosed:
-            _log.error("WebTiles: Websocket for user %s closed when sending "
-                       "watch command", self.username)
+        except Exception as e:
+            _log.error("WebTiles: game Websocket closed when sending watch "
+                       "command for user: %s", self.username)
             yield from self.stop()
             raise
 
@@ -407,13 +428,12 @@ class game_connection(webtiles_connection, chat.chat_listener):
         if self.listening and send_stop:
             try:
                 yield from self._send({"msg" : "go_lobby"})
-
-            except ConnectionClosed:
+            except Exception as e:
                 _log.error("WebTiles: Websocket connection for user %s closed "
                            "when sending go_lobby command", self.username)
                 yield from self.stop()
         if self.listening:
-            manager.listen_end(self.username, self.game_id)
+            manager.listen_end(self)
         self.listening = False
         self.username = None
         self.game_id = None
@@ -466,10 +486,10 @@ class game_connection(webtiles_connection, chat.chat_listener):
 
         if message["msg"] == "dump" and _conf.service_enabled("twitch"):
             user_data = config.get_user_data("webtiles", self.username)
-            if not user_data or not user_data["twitch_user"]:
+            if not user_data or not user_data["twitch_username"]:
                 return True
 
-            chan = twitch.manager.get_channel(user_data["twitch_user"])
+            chan = twitch.manager.get_channel(user_data["twitch_username"])
             if not chan:
                 return True
 
@@ -510,11 +530,8 @@ class webtiles_manager():
 
     @asyncio.coroutine
     def _new_subscriber_conn(self, username, game_id):
-        listen_msg = ("WebTiles: Attempting to listen to subscribed user "
-                      "{}".format(username))
         for conn in self._subscriber_conns:
             if not conn.listening and not conn.finished:
-                _log.info(listen_msg)
                 try:
                     yield from conn.listen_game(username, game_id)
                 except:
@@ -527,7 +544,6 @@ class webtiles_manager():
             return
 
         conn = game_connection()
-        _log.info(listen_msg)
         try:
             yield from conn.listen_game(username, game_id)
         except:
@@ -719,191 +735,6 @@ class webtiles_manager():
                                                  entry["game_id"])
 
     @asyncio.coroutine
-    def beem_command(self, source, sender, user, command, args):
-        wtconf = _conf.webtiles
-        bot_name = wtconf["username"]
-        target_user = user
-        if source.service_name == "twitch":
-            if not config.get_user_data("twitch", user):
-                yield from source.send_chat(
-                    "Twitch user {} is not registered".format(user))
-                return
-
-            target_user = config.get_webtiles_username(user)
-            if not target_user:
-                yield from source.send_chat(
-                    "You must have an admin link to your WebTiles username to "
-                    "your Twitch username")
-                return
-
-        user_data = config.get_user_data("webtiles", target_user)
-        if command == "nick":
-            if not args:
-                if not user_data or not user_data["nick"]:
-                    yield from source.send_chat(
-                        "No nick for WebTiles user {}".format(target_user))
-                else:
-                    yield from source.send_chat(
-                        "Nick for WebTiles user {}: {}".format(
-                            target_user, user_data["nick"]))
-                return
-
-            if not user_data:
-                try:
-                    config.register_user(source, sender, "webtiles",
-                                         target_user)
-                except:
-                    yield from source.send_chat("Error when registering")
-                    return
-
-                user_data = config.get_user_data("webtiles", target_user)
-
-            try:
-                if user_data["nick"] != args[0]:
-                    config.set_user_field(source, sender, "webtiles",
-                                          target_user, "nick", args[0])
-            except:
-                yield from source.send_chat("Error when setting nick")
-                return
-
-            yield from source.send_chat(
-                "Nick for WebTiles user {} set to {}".format(
-                    target_user, args[0]))
-            return
-
-        if command == "subscribe":
-            if not user_data:
-                try:
-                    config.register_user(source, sender, "webtiles",
-                                         target_user)
-                except:
-                    yield from source.send_chat("Error when registering")
-                    return
-
-                user_data = config.get_user_data("webtiles", target_user)
-
-            try:
-                if not user_data["subscribed"]:
-                    config.set_user_field(source, sender, "webtiles",
-                                          target_user, "subscribed", 1)
-            except:
-                yield from source.send_chat("Error when subscribing")
-                return
-
-            yield from source.send_chat(
-                "Subscribed. {} will watch the games of {} "
-                "automatically".format(bot_name, target_user))
-            return
-
-        if command == "unsubscribe":
-            if not user_data:
-                try:
-                    config.register_user(source, sender, "webtiles",
-                                         target_user)
-                except:
-                    yield from source.send_chat("Error when registering")
-                    return
-
-                user_data = config.get_user_data("webtiles", target_user)
-
-            try:
-                if user_data["subscribed"]:
-                    config.set_user_field(source, sender, "webtiles",
-                                          target_user, "subscribed", 0)
-            except:
-                yield from source.send_chat("Error when unsubscribing")
-                return
-
-            yield from source.send_chat(
-                "Unsubscribed. {} will not watch the games of {}".format(
-                    bot_name, target_user))
-            return
-
-        if command == "twitch-user":
-            if not args:
-                if not user_data:
-                    yield from source.send_chat(
-                        "WebTiles User {} is not registered.".format(
-                            target_user))
-                    return
-
-                if not user_data["twitch_user"]:
-                    yield from source.send_chat("No Twitch link for WebTiles "
-                                                "user {}".format(target_user))
-                    return
-                else:
-                    yield from source.send_chat(
-                        "Twitch link for WebTiles user {}: {}".format(
-                            target_user, user_data["twitch_user"]))
-                    return
-
-            if not user_data:
-                try:
-                    config.register_user(source, sender, "webtiles",
-                                         target_user)
-                except:
-                    yield from source.send_chat("Error when registering")
-                    return
-
-                user_data = config.get_user_data("webtiles", target_user)
-
-            if not config.get_user_data("twitch", args[0]):
-                try:
-                    config.register_user(source, sender, "twitch", args[0])
-                except:
-                    yield from source.send_chat(
-                        "Error when registering Twitch user")
-                    return
-
-            try:
-                if user_data["twitch_user"] != args[0]:
-                    config.set_user_field(source, sender, "webtiles",
-                                          target_user, "twitch_user", args[0])
-            except:
-                yield from source.send_chat("Error when setting Twitch link")
-                return
-
-            yield from source.send_chat(
-                "Twitch link for WebTiles user {} set to {}".format(
-                    target_user, args[0]))
-            return
-
-        if command == "twitch-reminder":
-            if not user_data:
-                yield from source.send_chat(
-                    "WebTiles user {} is not registered".format(target_user))
-                return
-
-            twitch_user = user_data["twitch_user"]
-            if not twitch_user:
-                yield from source.send_chat(
-                    "You must have an admin link your WebTiles username to "
-                    "your Twitch username")
-                return
-
-            if not args:
-                state = "on" if user_data["twitch_reminder"] else "off"
-                yield from source.send_chat(
-                    "Twitch reminder for user {} is {}".format(target_user,
-                                                               state))
-                return
-
-            state = 1 if args[0] == "on" else 0
-            try:
-                if user_data["twitch_reminder"] != state:
-                    config.set_user_field(source, sender, "webtiles",
-                                          target_user, "twitch_reminder", state)
-            except:
-                yield from source.send_chat(
-                    "Error when setting Twitch reminder.")
-                return
-
-            yield from source.send_chat(
-                "Twitch reminder for user {} is now {}".format(
-                    target_user, args[0]))
-            return
-
-    @asyncio.coroutine
     def _process(self):
         """Based on lobby information, do autolisten and listen to subscribers"""
 
@@ -926,12 +757,13 @@ class webtiles_manager():
         # Update the queue once per second
         yield from asyncio.sleep(1)
 
-    def listen_end(self, username, game_id):
-        queue = self._get_queue_entry(username, game_id)
+    def listen_end(self, conn):
+        queue = self._get_queue_entry(conn.username, conn.game_id)
         if not queue:
             return
 
         queue["time_end"] = time.time()
+
 
 def _parse_chat(message):
     # Remove html formatting
@@ -975,7 +807,7 @@ def _can_listen_user(user):
                 return False
 
     user_data = config.get_user_data("webtiles", user)
-    if user_data and not user_data["subscribed"]:
+    if user_data and user_data["subscription"] < 0:
         return False
 
     return True
@@ -989,7 +821,7 @@ def _should_listen_user(user):
 
     # User is subscribed.
     user_data = config.get_user_data("webtiles", user)
-    return user_data and user_data["subscribed"]
+    return user_data and user_data["subscription"] > 0
 
 def _game_allowed(username, game_id):
     """Can this game ever be listened to?
@@ -1013,5 +845,123 @@ def _game_allowed(username, game_id):
 
     return True
 
+@asyncio.coroutine
+def _subscribe_command(source, target_user):
+    user_data = config.get_user_data("webtiles", target_user)
+    if not user_data:
+        user_data = config.register_user("webtiles", target_user)
+
+    if user_data["subscription"] == 1:
+        yield from source.send_chat(
+            "User {} is already subscribed".format(target_user))
+        return
+
+    config.set_user_field("webtiles", target_user, "subscription", 1)
+    yield from source.send_chat(
+        "Subscribed. {} will now watch all games of user {}".format(
+            source.bot_name, target_user))
+
+@asyncio.coroutine
+def _unsubscribe_command(source, target_user):
+    user_data = config.get_user_data("webtiles", target_user)
+    if not user_data:
+        user_data = config.register_user("webtiles", target_user)
+
+    if user_data["subscription"] == -1:
+        yield from source.send_chat(
+            "User {} is already unsubscribed".format(target_user))
+        return
+
+    config.set_user_field("webtiles", target_user, "subscription", -1)
+    msg = "Unsubscribed. {} will no longer watch games of user {}.".format(
+        source.bot_name, target_user)
+    # We'll be leaving the chat of this source.
+    if source.username == target_user:
+        msg += " Bye!"
+    yield from source.send_chat(msg)
+
+@asyncio.coroutine
+def _twitch_user_command(source, target_user, twitch_user=None):
+    user_data = config.get_user_data("webtiles", target_user)
+    if not twitch_user:
+        if not user_data:
+            msg = "User {} is not registered.".format(target_user)
+        elif not user_data["twitch_username"]:
+            msg = ("An admin must link the WebTiles user {} to a Twitch "
+                   "username".format(target_user))
+        else:
+            msg = "Twitch username for user {}: {}".format(
+                target_user, user_data["twitch_username"])
+        yield from source.send_chat(msg)
+        return
+
+    if not user_data:
+        user_data = config.register_user("webtiles", target_user)
+
+    if not config.get_user_data("twitch", twitch_user):
+        config.register_user("twitch", twitch_user)
+
+    config.set_user_field("webtiles", target_user, "twitch_username",
+                          twitch_user)
+    yield from source.send_chat("User {} linked to Twitch username {}".format(
+        target_user, twitch_user))
+
+@asyncio.coroutine
+def _twitch_reminder_command(source, target_user, state=None):
+    user_data = config.get_user_data("webtiles", target_user)
+    if not user_data:
+        yield from source.send_chat("User {} is not registered".format(
+            target_user))
+        return
+
+    elif not user_data["twitch_username"]:
+        yield from source.send_chat("An admin must link the WebTiles user {} "
+                                    "to a Twitch username".format(target_user))
+        return
+
+    if state is None:
+        yield from source.send_chat("Twitch reminder for user {} is {}".format(
+            target_user, "on" if user_data["twitch_reminder"] else "off"))
+        return
+
+    state_val = 1 if state == "on" else 0
+    state_desc = "enabled" if state_val else "disabled"
+    config.set_user_field("webtiles", target_user, "twitch_reminder", state_val)
+    yield from source.send_chat("Twitch reminder {} for user {}".format(
+        state_desc, target_user))
+
 manager = webtiles_manager()
-config.register_service("webtiles", "WebTiles", "w", manager)
+config.services["webtiles"] = {
+    "name"                : "WebTiles",
+    "manager"             : manager,
+    "user_fields"         : ["nick", "subscription", "twitch_username",
+                             "twitch_reminder"],
+    "user_field_defaults" : ["", 0, "", 0],
+    "commands" : {
+        "subscribe" : {
+            "arg_pattern" : None,
+            "arg_description" : None,
+            "function" : _subscribe_command,
+        },
+        "unsubscribe" : {
+            "arg_pattern" : None,
+            "arg_description" : None,
+            "function" : _unsubscribe_command,
+        },
+        "nick" : {
+            "arg_pattern" : r"^[a-zA-Z0-9_-]+$",
+            "arg_description" : "<nick>",
+            "function" : chat.nick_command
+        },
+        "twitch-user" : {
+            "arg_pattern" : r"^[a-zA-Z0-9][a-zA-Z0-9_]{3,24}$",
+            "arg_description" : "<twitch-username>",
+            "function" : _twitch_user_command,
+        },
+        "twitch-reminder" : {
+            "arg_pattern" : r"^(on|off)$",
+            "arg_description" : "on|off",
+            "function" : _twitch_reminder_command,
+        },
+    }
+}

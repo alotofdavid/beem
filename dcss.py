@@ -4,14 +4,20 @@ import logging
 import re
 import time
 
-import beem
 import config
 
 _conf = config.conf
 _log = logging.getLogger()
 
+# Max number of queries we can have waiting for a response before we refuse
+# further queries. The limit is 10**_QUERY_ID_DIGITS.
 _QUERY_ID_DIGITS = 2
+# How long to wait for a query before ignoring any result from a bot and
+# reusing the query ID.
 _MAX_REQUEST_TIME = 80
+# How long to wait after a connection failure before reattempting the
+# connection.
+_RECONNECT_TIMEOUT = 10
 
 class dcss_manager():
     ## Can't depend on config.conf, as this isn't loaded yet.
@@ -25,8 +31,8 @@ class dcss_manager():
     def _connect(self):
         """Connect to DCSS irc."""
 
-        self._messages = []
         self.logged_in = False
+        self._messages = []
         self._queries = {}
         self._gretell_queue = []
         self._cheibriados_queue = []
@@ -50,25 +56,32 @@ class dcss_manager():
             except Exception as e:
                 _log.error("DCSS: Unable to send auth to NickServ: %s",
                            e.args[0])
-                if self._server.is_connected():
-                    self._server.disconnect()
-                return
+                yield from self.disconnect()
+                raise
 
-    def stop(self):
-        if not _conf.dcss.get("fake_connect") and self._server.is_connected():
+    def disconnect(self):
+        """Disconnect DCSS IRC. This will log any disconnection error, but never
+        raise.
+
+        """
+
+        if _conf.dcss.get("fake_connect") or not self._server.is_connected():
+            return
+
+        try:
             self._server.disconnect()
-
-        self._messages = []
-        self.logged_in = False
-        self._queries = {}
-        self._gretell_queue = []
-        self._cheibriados_queue = []
+        except Exception as e:
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
+            _log.error("DCSS: Error when disconnecting: %s", err_reason)
 
     def is_connected(self):
-        if _conf.dcss.get("fake_connect"):
-            return self.logged_in
-        else:
-            return self._server.is_connected()
+        # Make sure _connect() is run at least once even under fake_connect
+        if _conf.dcss.get("fake_connect") and self.logged_in:
+            return True
+
+        return self._server.is_connected()
 
     @asyncio.coroutine
     def start(self):
@@ -78,12 +91,17 @@ class dcss_manager():
                 try:
                     yield from self._connect()
                 except:
-                    yield from asyncio.sleep(_conf["reconnect_timeout"])
+                    yield from asyncio.sleep(_RECONNECT_TIMEOUT)
+
 
             try:
                 self._reactor.process_once()
             except Exception as e:
-                _log.error("DCSS: Error reading IRC connection:: %s", e.args[0])
+                err_reason = type(e).__name__
+                if e.args:
+                    err_reason = e.args[0]
+                _log.error("DCSS: Error reading IRC connection: %s", err_reason)
+                yield from self.disconnect()
 
             for m in list(self._messages):
                 nick, message = m
@@ -252,7 +270,7 @@ class dcss_manager():
             _log.debug("DCSS: Ignoring old %s message: %s", nick, message)
             return
 
-        source_manager = config.service_data[source_key[0]]["manager"]
+        source_manager = config.services[source_key[0]]["manager"]
         source = source_manager.get_source_by_key(source_key)
         if not source:
             _log.warning("DCSS: Ignoring %s message with unknown source: %s",
@@ -283,12 +301,14 @@ class dcss_manager():
                     return
 
             except Exception as e:
+                err_reason = type(e).__name__
+                if e.args:
+                    err_reason = e.args[0]
                 _log.error("DCSS: Unable to relay %s command (service: %s, "
-                           "chat: %s, error: %s): %s ",
-                           command_type,
-                           config.service_data[source.service_name]["desc"],
-                           source.username, e.args[0], message)
-                return
+                           "chat: %s, error: %s): %s ", command_type,
+                           config.services[source.service]["name"],
+                           source.username, err_reason, message)
+                raise
 
             # Sequell returns /me literally instead of using an IRC action, so
             # we do the dirty work here.
@@ -318,14 +338,17 @@ class dcss_manager():
                 command_type = "Cheibriados"
                 yield from self._send_cheibriados_command(source, message)
         except Exception as e:
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
             _log.error("DCSS: Unable to send %s command (service: %s, "
                        "chat: %s, requester %s, error: %s): %s ", command_type,
-                       config.service_data[source.service_name]["desc"],
-                       source.username, requester, e.args[0], message)
+                       config.services[source.service]["name"],
+                       source.username, requester, err_reason, message)
         else:
             _log.info("DCSS: Sent %s command (service: %s, chat: %s, "
                       "requester: %s): %s", command_type,
-                      config.service_data[source.service_name]["desc"],
+                      config.services[source.service]["name"],
                       source.username, requester, message)
 
 def is_dcss_command(message):
@@ -351,12 +374,9 @@ def _is_gretell_command(message):
             return True
     return False
 
-
 def _get_service_by_prefix(prefix):
-    for service, data in config.service_data.items():
+    for service, data in config.services.items():
         if prefix == data["prefix"]:
             return service
 
 manager = dcss_manager()
-# Currently unused.
-config.register_service("irc", "Freenode", "i", manager)

@@ -8,11 +8,13 @@ help_text = """I'm a chat bot that relays commands to the DCSS irc bots Sequell,
 # Sqlite3 user database file.
 user_db = "user_data.db3"
 
-# How many beem commands to accept before we ignore them until the next command
-# timeout.
-command_limit = 5
-# Length of the command timeout in seconds
-command_timeout = 30
+# The variables command_limit and command_period control the rate of commands
+# (both bot and dcss) allowed in chat. If the condition is reached where the
+# number of commands sent in the last 'command_period' seconds reaches
+# 'command_limit', subsequent commands are ignored until that condition is no
+# longer true.
+command_limit = 8
+command_period = 20
 
 # If true, listen_user field must be set in the tables of whichever of
 # webtiles/twitch you want to use. The bot will then only serve that user.
