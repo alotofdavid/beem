@@ -395,7 +395,7 @@ def _able_to_listen():
 
 manager = twitch_manager()
 config.services["twitch"] = {
-    "name"                : "WebTiles",
+    "name"                : "Twitch",
     "manager"             : manager,
     "user_fields"         : ["nick"],
     "user_field_defaults" : [""],

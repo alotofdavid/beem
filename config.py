@@ -255,8 +255,9 @@ def load_user_db():
             conn.close()
     msgs = []
     for service in services:
-        msgs.append("{} users".format(services[service]["name"]))
-    _log.info("Loaded data for {} users".format(len(_user_data)))
+        msgs.append("{} {} users".format(len(_user_data[service]),
+                                         services[service]["name"]))
+    _log.info("Loaded data for {} users".format(", ".join(msgs)))
 
 def register_user(service, username):
     conn = None
