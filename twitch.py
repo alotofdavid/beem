@@ -47,6 +47,7 @@ class twitch_manager():
         self._reactor = irc.client.Reactor()
         self._reactor.add_global_handler("all_events", self._dispatcher, -10)
         self._server = self._reactor.server()
+        self._logged_in = False
 
     @asyncio.coroutine
     def _connect(self):
@@ -58,7 +59,12 @@ class twitch_manager():
         self._time_last_message = None
         self._sent_normal_message = False
         self._logged_in = False
-        self._bot_channel = twitch_channel(_conf.twitch["nick"])
+
+        if _conf.get("single_user"):
+            self._bot_channel = twitch_channel(_conf.twitch["listen_user"])
+        else:
+            self._bot_channel = twitch_channel(_conf.twitch["nick"])
+
         if _conf.twitch.get("fake_connect"):
             self._logged_in = True
             return
@@ -95,7 +101,6 @@ class twitch_manager():
     def start(self):
         self._listen_queue = []
         _log.info("Twitch: Starting manager")
-        print("Twitch: Starting manager")
         while True:
             while not self.is_connected():
                 try:
@@ -189,7 +194,13 @@ class twitch_manager():
         return
 
     def get_channel(self, username):
-        if username == _conf.twitch["nick"]:
+        if _conf.get("single_user"):
+            if username == _conf.twitch["listen_user"]:
+                return self._bot_channel
+            else:
+                return
+
+        elif username == _conf.twitch["nick"]:
             return self._bot_channel
 
         for chan in self._channels:
@@ -227,7 +238,7 @@ class twitch_manager():
                     break
 
             if not idle_chan:
-                return
+                raise Exception("listening to too many channels")
 
             chan = idle_chan
             self._stop_listening(idle_chan)
@@ -236,7 +247,6 @@ class twitch_manager():
 
         self._join_channel(chan)
         self._channels.add(chan)
-        _log.info("Twitch: Joining channel of user %s", username)
 
     @asyncio.coroutine
     def _update_queue(self):
@@ -298,6 +308,7 @@ class twitch_manager():
             return
 
         self._server.join(channel.irc_channel)
+        _log.info("Twitch: Joining channel of user %s", channel.username)
 
     def send_channel(self, channel, message, is_action=False):
 
@@ -330,11 +341,8 @@ class twitch_manager():
     def join_command(self, source, target_user):
         user_data = config.get_user_data("twitch", target_user)
         if not user_data:
-            yield from source.send_chat(
-                "Twitch user {} is not registered".format(target_user))
-            return
-
-        if self.get_channel(target_user):
+            user_data = config.register_user("twitch", target_user)
+        elif self.get_channel(target_user):
             yield from source.send_chat(
                 "Already in chat of Twitch user {}".format(target_user))
             return
@@ -403,16 +411,19 @@ config.services["twitch"] = {
         "nick" : {
             "arg_pattern" : r"^[a-zA-Z0-9_-]+$",
             "arg_description" : "<nick>",
+            "single_user" : True,
             "function" : chat.nick_command
         },
         "join" : {
             "arg_pattern" : None,
             "arg_description" : None,
+            "single_user" : False,
             "function" : manager.join_command
         },
         "part" : {
             "arg_pattern" : None,
             "arg_description" : None,
+            "single_user" : False,
             "function" : manager.part_command
         },
     }

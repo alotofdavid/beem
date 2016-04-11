@@ -55,7 +55,8 @@ class chat_listener():
         found = False
         command_func = None
         for name, entry in config.services[self.service]["commands"].items():
-            if name != command:
+            if (name != command
+                or _conf.get("single_user") and not entry["single_user"]):
                 continue
 
             # Don't allow non-admins to set twitch-user
@@ -135,20 +136,18 @@ class chat_listener():
         if not beem_command and not dcss.is_dcss_command(message):
             return
 
-        admin = _conf.user_is_admin(self.service, sender)
         current_time = time.time()
         for timestamp in list(self._message_times):
             if current_time - timestamp >= _conf.command_period:
                 self._message_times.remove(timestamp)
-        if not admin:
-            if len(self._message_times) >= _conf.command_limit:
-                _log.info("%s: Command ignored due to command limit (listen "
-                          "user: %s, requester: %s): %s",
-                          config.services[self.service]["name"], self.username,
-                          sender, message)
-                return
+        if len(self._message_times) >= _conf.command_limit:
+            _log.info("%s: Command ignored due to command limit (listen "
+                      "user: %s, requester: %s): %s",
+                      config.services[self.service]["name"], self.username,
+                      sender, message)
+            return
 
-            self._message_times.append(current_time)
+        self._message_times.append(current_time)
 
         if beem_command:
             yield from self._read_beem_command(sender, message)
@@ -162,7 +161,6 @@ class chat_listener():
 
 @asyncio.coroutine
 def nick_command(source, target_user, nick=None):
-    _log.info("nicky")
     user_data = config.get_user_data(source.service, target_user)
     if not nick:
         if not user_data or not user_data["nick"]:

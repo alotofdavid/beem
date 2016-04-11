@@ -36,19 +36,49 @@ class beem_server:
             _conf.path = config_file
 
         try:
-            _conf.read()
-        except config.config_error as e:
-            _log.critical(e.msg)
+            _conf.load()
+        except Exception as e:
+            err_reason = type(e).__name__
+            if len(e.args):
+                err_reason = e.args[0]
+            _log.critical(err_reason)
             sys.exit(1)
 
         try:
-            config.load_user_db()
+            self._load_users()
+
         except Exception as e:
             err_reason = type(e).__name__
             if len(e.args):
                 err_reason = e.args[0]
             _log.critical("Unable to load user DB: %s", err_reason)
             sys.exit(1)
+
+    def _load_users(self):
+
+        config.load_user_db()
+
+        if not _conf.get("single_user"):
+            return
+
+        # Make sure we're registered for all services in single user mode.
+        for service in config.services:
+            if not _conf.service_enabled(service):
+                continue
+
+            sconf = _conf.get(service)
+            _log.info(service)
+            if not config.get_user_data(service, sconf["listen_user"]):
+                config.register_user(service, sconf["listen_user"])
+
+        # Link the listen user's WebTiles and Twitch usernames.
+        if _conf.service_enabled("webtiles"):
+            config.set_user_field("webtiles", _conf.webtiles["listen_user"],
+                                  "subscription", 1)
+            if _conf.service_enabled("twitch"):
+                config.set_user_field("webtiles", _conf.webtiles["listen_user"],
+                                      "twitch_username",
+                                      _conf.twitch["listen_user"])
 
     def start(self):
         _log.info("Starting beem server.")

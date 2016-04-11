@@ -1,4 +1,3 @@
-import asyncio
 import sqlite3
 import logging
 import os
@@ -6,13 +5,6 @@ import os.path
 import pytoml
 
 _DEFAULT_CONFIG_PATH = "./beem_config.toml"
-
-class config_error(Exception):
-    def __init__(self, config_file=None, msg=None):
-        self.msg = msg
-        if config_file and msg:
-            self.msg = "Config file {}: {}".format(config_file, msg)
-        super().__init__(self, msg)
 
 class beem_config(object):
     """Object representing beem configuration.
@@ -33,6 +25,11 @@ class beem_config(object):
     def get(self, *args):
         return self._data.get(*args)
 
+    def _require_fields(self, table, fields):
+        for field in fields:
+            if not self.get(table).get(field):
+                _error("In {} table, {} undefined.".format(table, field))
+
     def _check_path(self):
         if not self.path and os.environ.get("BEEM_CONF"):
             self.path = os.environ["BEEM_CONF"]
@@ -45,9 +42,99 @@ class beem_config(object):
                            "and edit.")
             _error(errmsg)
 
-    def read(self):
-        """
-        Reads the main TOML configuration data from self.path
+    def _init_logging(self):
+        if not self.get("logging_config"):
+            _error("logging_config table undefined.")
+
+        log_conf = self.logging_config
+        self._require_fields("logging_config", ["format"])
+
+        if log_conf.get("filename"):
+            if not log_conf.get("max_bytes"):
+                _error("in logging_config table, filename enabled but "
+                       "max_bytes undefined.")
+
+            if not log_conf.get("backup_count"):
+                _error("in logging_config table, filename enabled but "
+                       "backup_count undefined.")
+
+            handler = RotatingFileHandler(log_conf["filename"],
+                                          maxBytes=log_conf["max_bytes"],
+                                          backupCount=log_conf["backup_count"])
+        else:
+            handler = logging.StreamHandler(None)
+            handler.setFormatter(
+                logging.Formatter(log_conf["format"], log_conf.get("datefmt")))
+
+        _log.addHandler(handler)
+
+        if log_conf.get("level"):
+            _log.setLevel(log_conf["level"])
+
+    def _check_dcss(self):
+        if not self.get("dcss"):
+            self._error("The dcss table is undefined.")
+
+        self._require_fields("dcss",
+                             ["hostname", "port", "nick", "sequell_nick",
+                              "sequell_patterns", "gretell_nick",
+                              "gretell_patterns", "cheibriados_nick",
+                              "cheibriados_patterns"])
+
+    def _check_webtiles(self):
+        if not self.get("webtiles") or not self.webtiles.get("enabled"):
+            return
+
+        webtiles = self.webtiles
+        self._require_fields("webtiles", ["server_url", "username", "password"])
+
+
+        if self.get("single_user"):
+            if not webtiles.get("listen_user"):
+                _error("single_user enabled but listen_user not defined in "
+                       "webtiles table")
+            self.webtiles["max_listened_subscribers"] = 1
+            self.webtiles["max_game_idle"] = float("inf")
+            self.webtiles["game_relisten_timeout"] = float("inf")
+            self.webtiles["autolisten_enabled"] = False
+            return
+
+        self._require_fields("webtiles", ["max_listened_subscribers",
+                                          "max_game_idle",
+                                          "game_relisten_timeout"])
+
+        if webtiles.get("autolisten_enabled"):
+            self._require_fields("webtiles", ["min_autolisten_spectators"])
+
+        if webtiles.get("twitch_reminder_text"):
+            self._require_fields("webtiles", ["twitch_reminder_period"])
+
+    def _check_twitch(self):
+        if not self.get("twitch") or not self.twitch.get("enabled"):
+            return
+
+        self._require_fields("twitch", ["hostname", "port", "nick", "password",
+                                        "message_limit",
+                                        "moderator_message_limit",
+                                        "message_timeout", "max_chat_idle",
+                                        "request_expire_time"])
+
+        if self.get("single_user"):
+            if not self.twitch.get("listen_user"):
+                _error("single_user enabled but listen_user not defined in "
+                       "twitch table")
+            self.twitch["max_listened_subscribers"] = 1
+            self.twitch["max_chat_idle"] = float("inf")
+            self.twitch["request_expire_time"] = float("inf")
+            return
+
+        self._require_fields("twitch", ["max_listened_subscribers",
+                                        "max_chat_idle", "request_expire_time"])
+
+    def load(self):
+        """Read the main TOML configuration data from self.path and check
+        that the configuration is valid.
+
         """
 
         self._check_path()
@@ -65,107 +152,21 @@ class beem_config(object):
             finally:
                 config_fh.close()
 
-        if not self.get("logging_config"):
-            _error("logging_config table undefined.")
+        self._init_logging()
+        self._check_dcss()
+        self._check_webtiles()
+        self._check_twitch()
 
-        log_conf = self.logging_config
-        if log_conf.get("filename"):
-            if not log_conf.get("max_bytes"):
-                _error("In logging_config table, filename enabled but "
-                       "max_bytes undefined.")
-
-            if not log_conf.get("backup_count"):
-                _error("In logging_config table, filename enabled but "
-                       "backup_count undefined.")
-
-        if not log_conf.get("format"):
-            _error("In logging_config table, format undefined.")
-
-        log_conf = self.logging_config
-        if log_conf.get("filename"):
-            handler = RotatingFileHandler(log_conf["filename"],
-                                          maxBytes=log_conf["max_bytes"],
-                                          backupCount=log_conf["backup_count"])
-        else:
-            handler = logging.StreamHandler(None)
-            handler.setFormatter(
-                logging.Formatter(log_conf["format"], log_conf.get("datefmt")))
-
-        _log.addHandler(handler)
-        if log_conf.get("level") is not None:
-            _log.setLevel(log_conf["level"])
-
-        if not self.get("dcss"):
-            self._error("The dcss table is undefined.")
-
-        required = ["hostname", "port", "nick", "sequell_nick",
-                    "sequell_patterns", "gretell_nick", "gretell_patterns",
-                    "cheibriados_nick", "cheibriados_patterns"]
-
-        for field in required:
-            if not self.dcss.get(field):
-                _error("In dcss table, {} undefined.".format(field))
-
-        if self.get("webtiles") and self.webtiles.get("enabled"):
-            webtiles = self.webtiles
-            required = ["server", "username", "password",
-                        "max_listened_subscribers"]
-
-            for field in required:
-                if not webtiles.get(field):
-                    _error("In webtiles table, {} undefined".format(field))
-
-            if webtiles["max_listened_subscribers"] < 1:
-                _error("In webtiles table, max_listened_subscribers must be at "
-                       "least 1")
-
-            urls = {}
-            if not self.webtiles.get("servers"):
-                _error("webtiles.servers table undefined.")
-
-            for server in self.webtiles["servers"]:
-
-                if not server.get("name"):
-                    _error("Server {} missing name field.".format(
-                        server["name"]))
-
-                if not server.get("websocket_url"):
-                    _error("Server {} missing websocket_url field.".format(
-                        server["id"]))
-
-                if server["name"] in urls:
-                    _error("Duplicate server definition for '{}'.".format(
-                        server["name"]))
-
-                urls[server["name"]] = server["websocket_url"]
-
-            self.webtiles["server_urls"] = urls
-
-            if webtiles["server"] not in self.webtiles["server_urls"]:
-                _error("In webtiles table, unknown server given: "
-                       "{}".format(webtiles["server"]))
-
-        if self.get("twitch") and self.twitch.get("enabled"):
-            required = ["hostname", "port", "nick", "password",
-                        "message_limit"]
-
-            for field in required:
-                if not self.twitch.get(field):
-                    _error("In twitch table, {} undefined.".format(field))
-
-    def service_enabled(self, service):
-        assert service in services
-
-        return self.get(service) and self.get(service).get("enabled")
-
-    def dcss_enabled(self):
-        """This returns False only in debug-mode to help test without connecting
-
-        """
-        return not self.dcss.get("fake_connect")
+        have_service = False
+        for service in services:
+            if self.service_enabled(service):
+                have_service = True
+                break
+        if not have_service:
+            _error("At least one service must be enabled")
 
     def user_is_admin(self, service, user):
-        admins = conf.get(service).get("admins")
+        admins = self.get(service).get("admins")
         if not admins:
             return False
 
@@ -174,12 +175,14 @@ class beem_config(object):
                 return True
         return False
 
-def get_webtiles_username(twitch_user):
-    for user, data in _user_data["webtiles"].items():
-        if data["twitch_user"] == twitch_user:
-            return user
+    def service_enabled(self, service):
+        assert service in services
 
-    return None
+        return self.get(service) and self.get(service).get("enabled")
+
+
+def _error(msg):
+    raise Exception("Config file {}: {}".format(conf.path, msg))
 
 def _ensure_user_db_exists():
     if os.path.exists(conf.user_db):
@@ -334,9 +337,6 @@ def set_user_field(service, username, field, value):
 
 def get_user_data(service, username):
     return _user_data[service].get(username.lower())
-
-def _error(msg):
-    raise config_error(conf.path, msg)
 
 services = {}
 _user_data = {}

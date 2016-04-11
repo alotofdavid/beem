@@ -18,6 +18,12 @@ import twitch
 _conf = config.conf
 _log = logging.getLogger()
 
+# How many seconds after connecting and sending login data do we wait
+# for login confirmation.
+_LOGIN_TIMEOUT = 30
+# How many seconds to wait after a game ends before attempting to watch again.
+_RELISTEN_WAIT = 5
+
 class webtiles_connection():
     def __init__(self):
         super().__init__()
@@ -37,13 +43,12 @@ class webtiles_connection():
         assert(not self.connected())
 
         wtconf = _conf.webtiles
-        websocket_url = wtconf["server_urls"][_conf.webtiles["server"]]
-
         try:
-            self._websocket = yield from websockets.connect(websocket_url)
+            self._websocket = yield from websockets.connect(
+                wtconf["server_url"])
         except OSError as e:
             _log.error("WebTiles: Unable to connect to %s: %s",
-                       _conf.webtiles["server"], e.strerror)
+                       _conf.webtiles["server_url"], e.strerror)
             yield from self.stop()
             raise
 
@@ -66,7 +71,7 @@ class webtiles_connection():
     def _login_timeout(self):
         return (self._time_connected
                 and not self._logged_in
-                and time.time() - self._time_connected >= 30)
+                and time.time() - self._time_connected >= _LOGIN_TIMEOUT)
 
     @asyncio.coroutine
     def stop(self):
@@ -138,7 +143,7 @@ class webtiles_connection():
         if message["msg"] == "login_fail":
             ## Very bad, shut down the server.
             _log.critical("WebTiles: Login to %s failed; shutting down server.",
-                          _conf.webtiles["server"])
+                          _conf.webtiles["server_url"])
             os.kill(os.getpid(), signal.SIGTERM)
             return True
 
@@ -303,6 +308,7 @@ class game_connection(webtiles_connection, chat.chat_listener):
         yield from self._handle_greeting()
         yield from self._handle_reminder()
 
+        messages = None
         try:
             messages = yield from self._read()
         except Exception as e:
@@ -312,7 +318,6 @@ class game_connection(webtiles_connection, chat.chat_listener):
             _log.error("WebTiles: Unable to read game WebSocket (listen user: "
                        "%s): %s", self.username, err_reason)
             yield from self.stop()
-
 
         if not messages:
             return
@@ -333,6 +338,8 @@ class game_connection(webtiles_connection, chat.chat_listener):
     @asyncio.coroutine
     def _handle_reminder(self):
         if (not _conf.service_enabled("twitch")
+            or not _conf.webtiles.get("twitch_reminder_text")
+            or not twitch.manager.is_connected()
             or not self.spectators
             or self.spectators == [self.username]):
             return
@@ -394,8 +401,7 @@ class game_connection(webtiles_connection, chat.chat_listener):
         self.username = username
         self.game_id = game_id
         user_data = config.get_user_data("webtiles", username)
-        if (user_data and user_data["subscription"] > 0
-            or _conf.user_is_admin("webtiles", username)):
+        if user_data and user_data["subscription"] > 0:
             self._need_greeting = False
         else:
             self._need_greeting = True
@@ -626,8 +632,6 @@ class webtiles_manager():
         autolisten_username = None
         autolisten_game_id = None
         spectator_max = -1
-        autolisten_enabled = (not wtconf.get("listen_user")
-                              and wtconf.get("autolisten_enabled"))
         for entry in self._lobby.entries:
             idle_time = (entry["idle_time"] +
                          time.time() - entry["time_update"])
@@ -636,7 +640,7 @@ class webtiles_manager():
                 continue
 
             specs = entry["spectator_count"]
-            if (autolisten_enabled
+            if (wtconf.get("autolisten_enabled")
                 and _able_to_listen()
                 and specs >= wtconf["min_autolisten_spectators"]
                 and specs > spectator_max):
@@ -704,8 +708,8 @@ class webtiles_manager():
             conn = self._get_connection(entry["username"], entry["game_id"])
             idle = idle_time >= wtconf["max_game_idle"]
             allowed = _game_allowed(entry["username"], entry["game_id"])
-            wait_relisten = (entry["time_end"]
-                             and time.time() - entry["time_end"] < 5)
+            wait = (entry["time_end"]
+                    and time.time() - entry["time_end"] < _RELISTEN_WAIT)
             expireable = (not entry["time_end"]
                           or time.time() - entry["time_end"] >= relisten_timeout)
             able = _able_to_listen()
@@ -726,7 +730,7 @@ class webtiles_manager():
                 continue
 
             # We can't listen yet or we already have a designated connection.
-            if not _able_to_listen() or not lobby or wait_relisten or conn:
+            if not _able_to_listen() or not lobby or wait or conn:
                 continue
 
             # Try to give the game a subscriber slot. If it fails, the entry
@@ -796,10 +800,7 @@ def _able_to_listen():
 
 def _can_listen_user(user):
     if _conf.get("single_user"):
-        return user == _conf.webtiles.get("listen_user")
-
-    if _conf.user_is_admin("webtiles", user):
-        return True
+        return user == _conf.webtiles["listen_user"]
 
     if _conf.webtiles.get("never_listen"):
         for u in _conf.webtiles["never_listen"]:
@@ -813,12 +814,6 @@ def _can_listen_user(user):
     return True
 
 def _should_listen_user(user):
-    if _conf.webtiles.get("listen_user"):
-        return user == _conf.webtiles["listen_user"]
-
-    if _conf.user_is_admin("webtiles", user):
-        return True
-
     # User is subscribed.
     user_data = config.get_user_data("webtiles", user)
     return user_data and user_data["subscription"] > 0
@@ -941,26 +936,31 @@ config.services["webtiles"] = {
         "subscribe" : {
             "arg_pattern" : None,
             "arg_description" : None,
+            "single_user" : False,
             "function" : _subscribe_command,
         },
         "unsubscribe" : {
             "arg_pattern" : None,
             "arg_description" : None,
+            "single_user" : False,
             "function" : _unsubscribe_command,
         },
         "nick" : {
             "arg_pattern" : r"^[a-zA-Z0-9_-]+$",
             "arg_description" : "<nick>",
+            "single_user" : True,
             "function" : chat.nick_command
         },
         "twitch-user" : {
             "arg_pattern" : r"^[a-zA-Z0-9][a-zA-Z0-9_]{3,24}$",
             "arg_description" : "<twitch-username>",
+            "single_user" : False,
             "function" : _twitch_user_command,
         },
         "twitch-reminder" : {
             "arg_pattern" : r"^(on|off)$",
             "arg_description" : "on|off",
+            "single_user" : True,
             "function" : _twitch_reminder_command,
         },
     }
