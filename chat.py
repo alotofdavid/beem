@@ -28,11 +28,11 @@ class chat_listener():
         return user != self.bot_name
 
     @asyncio.coroutine
-    def _send_command_usage(self, command, in_service):
+    def _send_command_usage(self, command):
         msg = "Usage: {} {}".format(self.bot_name, command)
-        msg += " {}".format(self.service) if not in_service else ""
-        if _command_data[command]["arg_description"]:
-            msg += " [{}]".format(_command_data[command]["arg_description"])
+        command_entry = config.services[self.service]["commands"][command]
+        if command_entry["arg_description"]:
+            msg += " [{}]".format(command_entry["arg_description"])
         yield from self.send_chat(msg)
 
     @asyncio.coroutine
