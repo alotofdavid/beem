@@ -413,14 +413,11 @@ class game_connection(webtiles_connection, chat.chat_listener):
             yield from self._send({"msg"      : "watch",
                                    "username" : self.username})
         except Exception as e:
-            _log.error("WebTiles: game Websocket closed when sending watch "
-                       "command for user: %s", self.username)
-            yield from self.stop()
-            raise
-
-        except Exception as e:
-            _log.error("WebTiles: Unable to send watch message for user "
-                       "%s: %s", self.username, e.args[0])
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
+            _log.error("WebTiles: Unable to send watch message for user %s: "
+                       "%s", self.username, err_reason)
             yield from self.stop()
             raise
 
@@ -439,6 +436,7 @@ class game_connection(webtiles_connection, chat.chat_listener):
                            "when sending go_lobby command", self.username)
                 yield from self.stop()
         if self.listening:
+            self._last_listen_time = time.time()
             manager.listen_end(self)
         self.listening = False
         self.username = None
