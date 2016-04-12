@@ -7,8 +7,10 @@ Gretell, and Cheibriados to have beem return the results. beem supports nearly
 any command you would use use for these bots in the *##crawl* channel on
 Freenode.
 
-If you see beem watching a game played on CSZO, type the following in WebTiles
-chat to get subscribed and have beem begin watching your games:
+If you see beem watching a game played on
+[CBRO](http://crawl.berotato.org:8080/) or
+[CAO](http://crawl.akrasiac.org:8080/), type the following in chat to get
+subscribed and have beem begin watching your games:
 
     !beem subscribe
 
@@ -18,7 +20,8 @@ can use to control beem.
 DCSS bot commands
 -----------------
 
-A quick guide for commonly used bot commands.
+A quick guide for commonly used DCSS bot commands you can use in any chat where
+beem is listening.
 
 ###List games and milestones
 
@@ -64,9 +67,9 @@ A quick guide for commonly used bot commands.
 
   Get the morgue of your latest in-progress game. Takes arguments for 1) player
   name 2) server and 3) version, with "trunk" being the default version. Here
-  is gammafunk's in-progress game on cszo for version 0.17:
+  is gammafunk's in-progress game on cbro for version 0.17:
 
-        &dump gammafunk cszo trunk
+        &dump gammafunk cbro trunk
 
 ###FooTV
 
