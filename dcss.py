@@ -58,6 +58,8 @@ class dcss_manager():
                            e.args[0])
                 yield from self.disconnect()
                 raise
+        else:
+            self.logged_in = True
 
     def disconnect(self):
         """Disconnect DCSS IRC. This will log any disconnection error, but never
