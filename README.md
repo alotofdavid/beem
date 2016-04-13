@@ -1,12 +1,12 @@
 beem
 ====
 
-beem is a multi-user chat bot that can relay queries to the IRC
-knowledge bots for [DCSS](http://crawl.develz.org/wordpress/) from
-WebTiles or Twitch chat. This bot is being tested on
-[CSZO](http://crawl.s-z.org/) and will automatically join your chat if
+beem is a multi-user chat bot that can relay queries to the IRC knowledge bots
+for [DCSS](http://crawl.develz.org/wordpress/) from WebTiles or Twitch
+chat. This bot is being tested on [CBRO](http://crawl.berotato.org:8080/) and
+[CAO](http://crawl.akrasiac.org:8080/) and will automatically join your chat if
 your game has the most spectators and isn't idle for too long. You can
-subscribe to have beem watch your games on CSZO automatically; See the
+subscribe to have beem watch your games automatically. See the
 [command guide](docs/commands.md) for details on using beem from chat.
 
 beem manages a Freenode IRC connection that sends queries to the bots
