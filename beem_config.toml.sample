@@ -2,11 +2,6 @@
 # beem configuration file
 # =======================
 
-# Text given in chat when someone executes !<bot-name> help.
-help_text = """I'm a chat bot that relays commands to the DCSS irc bots
-Sequell, Gretell, and Cheibriados. For further details, see
-https://github.com/gammafunk/beem/blob/master/docs/commands.md"""
-
 # Sqlite3 user database file.
 user_db = "user_data.db3"
 
@@ -121,6 +116,12 @@ max_game_idle = 600
 # designated slot.
 game_relisten_timeout = 30
 
+# Send when users issue !<bot-name> help
+help_text = """I'm a bot that sends commands to the DCSS IRC knowledge
+bots. For details, see
+https://github.com/gammafunk/beem/blob/master/docs/commands.md and to have me
+watch your games on this server, type: !%n subscribe"""
+
 # Set this to true to have beem use a dedicated connection to watch the most
 # spectated non-idle game on the server. Note the connection used is
 # independent of the limit in `max_listened_subscribers' above.
@@ -217,6 +218,11 @@ max_chat_idle = 1800
 # requested channel, leaving only when it becomes idle and there are users with
 # Twitch requests
 request_expire_time = 28800
+
+# Send when users issue !<bot-name> help
+help_text = """I'm a bot that sends commands to the DCSS irc knowledge
+bots. For details, see:
+https://github.com/gammafunk/beem/blob/master/docs/commands.md"""
 
 
 # =============================

@@ -44,7 +44,9 @@ class chat_listener():
         admin = _conf.user_is_admin(self.service, sender)
         command = args.pop(0).lower()
         if command == "help":
-            yield from self.send_chat(_conf.help_text)
+            help_text = _conf.get(self.service)["help_text"].replace("\n", " ")
+            help_text = help_text.replace("%n", self.bot_name)
+            yield from self.send_chat(help_text)
             return
 
         if admin and args and args[0].startswith("@"):
