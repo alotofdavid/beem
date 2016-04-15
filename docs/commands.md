@@ -1,218 +1,128 @@
-# The beem command guide
+# beem command guide
 
-beem is a multi-user chat bot that can relay queries to the IRC knowledge bots
-for [DCSS](http://crawl.develz.org/wordpress/) from WebTiles or Twitch chat. If
-beem watching a game in WebTiles, type commands into chat for the bots Sequell,
-Gretell, and Cheibriados to have beem return the results. beem supports nearly
-any command you would use use for these bots in the *##crawl* channel on
-Freenode.
+beem is a bot that sends queries to the
+[DCSS](http://crawl.develz.org/wordpress/) IRC knowledge bots from WebTiles or
+Twitch chat. If beem is listening to your chat, type commands for the bots
+Sequell, Gretell, and Cheibriados to have beem return the results.
 
-If you see beem watching a game played on
-[CBRO](http://crawl.berotato.org:8080/) or
-[CAO](http://crawl.akrasiac.org:8080/), type the following in chat to get
-subscribed and have beem begin watching your games:
+To have beem automatically watch your WebTiles games on a server, type:
 
     !beem subscribe
 
-See the [beem command](#beem-control-commands) section for other commands you
-can use to control beem.
+To prevent beem from watching your games, type:
 
-DCSS bot commands
------------------
+    !beem unsubscribe
 
-A quick guide for commonly used DCSS bot commands you can use in any chat where
-beem is listening.
+Knowledge bot command examples
+------------------------------
 
-###List games and milestones
+A quick guide to the types of knowledge commands beem recognizes.
 
-- `!lg`
+### LearnDB lookup
 
-  List games that have finished (ie. quit, died or won). The first argument is
-  the target player, with `*` meaning all players and `.` meaning yourself. The
-  remaining arguments add filters to select specific games. There are many
-  fields you can filter and display, as well as more complicated queries. See
-  `??listgame_examples` for some examples and `??lg` for further details.
+  Look up topics in a user-contributed database of knowledge:
 
-- `!lm`
+    ??sigmund
+    ??singing_sword[2]
 
-  List milestones for any game (either finished or ongoing). Takes most of the
-  same arguments as `!lg`. See `??lm` for details and examples.
+  Search within a topic or across topics:
 
-##### Special chat variables
+    ??apropos_randart[minotaur]
+    ?/moon
 
-- `$p`
+  See `??learndb` for other ways to read the topics. You can't edit/add LearnDB
+  entries from beem; visit the
+  [##crawl](http://webchat.freenode.net/?channels=##crawl) channel on Freenode
+  to do that.
 
-  This will expand to the name of the current player in WebTiles or streamer in
-  Twitch. Use this as a shortcut when making queries for the player/streamer's
-  games. For example, the current player's last death at XL17 or higher:
+### Monster lookup:
 
-        !lg $p splat
+  Look up monster statistics:
 
-- `$chat`
+    @??the royal jelly
+    @??orb_guardian perm_ench:berserk
 
-  Currently supported only in WebTiles, this expands to a list of all users
-  currently in chat. For example win rates of everyone in chat for games in
-  recent versions that were not quit, sorted by win rate:
+### List games and milestones
 
-        !lg $chat recent !boring s=name / won o=%
+  Use `!lg` to see details from completed games, and `!lm` to see milestones
+  from completed or in-progress games:
 
-###Morgues
+    !lg
+    !lg . splat
+    !lm . rune
 
-- `!log` or the `-log` argument added to any `!lg` query
+  The variable `$p` is set to the player's name, and `$chat` is set to a string
+  you can use to query for everyone in chat:
 
-  Get the URL to the morgue of a finished game. `!log` takes any argument that
-  `!lg` would.
+    !lg $p
+    !lg $chat recent !boring s=name / won o=%
 
-- `&dump`
+  See `??listgame_examples` for more examples and `??lg` and `??lm` for further
+  details.
 
-  Get the morgue of your latest in-progress game. Takes arguments for 1) player
-  name 2) server and 3) version, with "trunk" being the default version. Here
-  is gammafunk's in-progress game on cbro for version 0.17:
+### FooTV
 
-        &dump gammafunk cbro trunk
+  Watch ascii recordings of games played on servers that support them (all but
+  cpo, cwz, and lld):
 
-###FooTV
+    !lm . orb -tv
 
-Games played on all online server except lld, cwz, and cpo have ttyrecs
-recordings made automatically. These are ascii console recordings of online
-games and are made on all servers except lld and cwz.
+  Load ttyrecs from a LearnDB entry:
 
-- `!tv` or `-tv` added to any `!lg` or `!lm` query
+    !learntv hilarious_deaths[27]
 
-  Queue's the ttyrec in FooTV and gives a URL to watch in your web browser.
+  See `??footv` and `??ttyrec` for further details.
 
-- `!learntv`
+### Morgues and in-progress game dumps
 
-  Run a FooTV command that's stored in a learnDB entry. For example, this
-  queues the 27th entry in `??hilarious_deaths`:
+  Add `-log` to any `!lg` query, or use `!log`:
 
-        !learntv hilarious_deaths[27]
+    !lg . splat -log
+    !log . splat
 
-- `!ttyrec` and `-ttyrec` with any `!lg` or `!lm` query
+  Look up dumps for in-progress games:
 
-  Get the URL to the ttyrec file for use with a local ttyrec player like
-  (jettyplay)[http://nethack4.org/projects/jettyplay/].
+    &dump
+    &dump . cbro trunk
 
-See `??footv` and `??ttyrec` for further examples and details.
+### Other Sequell commands:
 
-###Sequell commands
+  Details on all games played and won for a player or nick. These accept any
+  arguments for `!lg`:
 
-There are many internal and user-defined commands you can use with
-Sequell. Commands recognized by beem begin with `&`, `!`, `.`, or `=`. In
-Twitch chat, use `_` instead of `.` at the beginning of commands.
-
-A few examples:
-
-- `!gamesby` and `!won`
-
-  Details on all games played and won. Looks up your games by default but both
-  accept `!lg` arguments.
-
-- `!stats` and `!apt`
+    !won
+    !gamesby elliptic
 
   Starting stats of a particular combo and aptitudes of a particular race or
   aptitudes of all races for a particular skill:
 
-        !stats HEFi
-        !apt HE
-        !apt Summonings
+    !stats HEFi
+    !apt HE
+    !apt Summonings
 
-- `!goodplayer`, `!greatplayer`, `!greaterplayer`, `!greatrace`, `!greatrole`
+  Look up progress towards various win achievements:
 
-  Look up progress towards various win achievements.
+    !greatplayer gammafunk
+    !greaterplayer gammafunk
+    !greatrace Dr Dynast
+    !greatrole Tm Dynast
 
-Many commands do complicated !lg or !lm commands and accept arguments for
-those. For example:
-
-    !killratio sigmund * recent
-
-will give sigmund's player kill-rate in recent versions of DCSS.
-
-Type `??sequell[2]` to see the user-defined commands available and use `!help`
-to see documentation for commands that have this.
-
-###LearnDB
-
-LearnDB is a user-contributed database of crawl knowledge (and jokes). Read a
-topic using the `??` prefix.
-
-For topics with multiple entries, add an index:
-
-    ??singing_sword[2]
-
-You can search for entries within a topic by using putting search text instead
-of an index in the brackets:
-
-    ??apropos_randart[minotaur]
-
-You Find all topics/entries matching a term using `?/`:
-
-    ?/goblin
-
-See `??learndb` for other ways to read the entries. Note that you can't
-add/edit entries using beem. You must do that from the ##crawl irc channel on
-Freenode.
-
-###Monster Database
-
-Look up monster information relative to the trunk version through Gretell by
-typing a query like:
-
-    @??the royal jelly
+  See `??sequell[2]` for the user-defined commands available and use `!help` to
+  see documentation for commands with help documentation available.
 
 
-In these monster queries, you can set some fields in the form `field:value`:
+### Git commit lookup
 
-    @??ice_beast hd:27
-    @??orb_guardian perm_ench:berserk
-    @??sigmund spells:fire_storm.200.magical
-
-to see monster details when they have a specific status, number of HD, or to
-see how much damage they would do with a specific spell
-
-For a specific serpent of hell add geh, dis, coc, or tar:
-
-    @??serpent_of_hell geh
-
-For spells, seperate entries with `;` and make each have the form
-`spell_name.200.magical`. Here 200 is the spell frequency and "magical" is cast
-type, but these don't matter for purposes of looking up monsters.
-
-For the 0.17 monster database, you can make the same query through Cheibriados
-using prefix `%??`.
-
-###Git
-
-- `%git`
-
-  Look up commits in the official crawl github repository.
-
-  You can specify a branch or commit hash as an argument. For the last commit in
-  the 0.17 stable version:
+  Look up commits in the official crawl github repository by commit or branch:
 
         %git stone_soup-0.17
-
-  For a specific commit:
-
         %git 0a147b9
 
-  If you have a specific version number like "0.17-a0-488-g0a147b9" and want
-  the corresponding commit, the hash string are the characters after the final
-  dash but with the initial "g" removed.
-
-  To search commits, use `HEAD^{/<search term>}` as an argument. For example,
-  the last trunk commit with 'Moon Base' in the commit message:
+  Search for the most recent commit matching a string:
 
         %git HEAD^{/Moon Base}
 
-- `!gitgrep`
-
-  Use queries of the form:
-
-        !gitgrep <n> <search>
-
-  to search for the n-th from last matching a specific string. This gets the
-  2nd from last commit containing "moon troll":
+  Search for the n-th most recent commit matching a string:
 
         !gitgrep 2 moon troll
 
@@ -220,47 +130,45 @@ using prefix `%??`.
 beem control commands
 ---------------------
 
-These commands change your beem user settings and control the bot when it's
-listening to your WebTiles games or your Twitch channel.
+Use these chat commands to control the bot when it's listening to your WebTiles
+games or your Twitch channel.
 
-###WebTiles
+### WebTiles
 
-These commands should be run from WebTiles chat of any game where beem is
-listening.
+These can be run from any WebTiles chat where beem is listening.
 
 - `!beem subscribe`
 
-  Have beem watch your games whenever it sees them. Type this from any chat
-  where you see beem watching to have it begin watching to your games. Note
-  that beem has a limit to the number of games it can watch, so if it doesn't
-  join your game right away, just wait a bit until someone else stops playing
-  or goes idle, and beem will begin spectating.
+  Have beem watch your games whenever it sees them. Note that beem has a limit
+  to the number of games it can watch at once, so if it doesn't join your game
+  right away, just wait a bit until someone else stops playing or goes idle.
 
 - `!beem unsubscribe`
 
   Prevent beem from watching your games. beem will leave your chat after you
   run this command. You can run `beem subscribe` from any other chat where you
-  see beem to have it watch your games again.
+  see beem to have it resume watching your games.
 
 - `!beem nick [<name>]`
 
-  Use it to check or set the nick beem will use when making queries to
-  Sequell. This is most important for `!lg` commands if you have a nick defined
-  in Sequell to track multiple accounts. Note this doesn't change your nick
-  within Sequell itself; to do that you need to use the `!nick` command in the
-  *##crawl* on Freenode IRC.
+  Set the nick beem will use for you when making queries to Sequell. On
+  WebTiles, this is only useful if you play on multiple accounts and have set
+  your nick within Sequell using the `!nick` command. You can set your Sequell
+  nick in the [##crawl](http://webchat.freenode.net/?channels=##crawl) channel
+  on Freenode. If you only play on one account, it's not necessary to set your
+  nick with beem.
 
 - `!beem twitch-reminder [on|off]`
 
   To use this command, you must have an admin link your WebTiles username to
   your Twitch username. Use `twitch-reminder` to enable/disable a WebTiles chat
   reminder for when beem is watching both your WebTiles game and your Twitch
-  channel (e.g. you're playing on WebTiles during a Twitch stream). This
+  channel (i.e. you're playing on WebTiles during a Twitch stream). This
   reminder is sent every 15 minutes, telling your WebTiles spectators that
   you're streaming in Twitch and won't be responding to WebTiles chat. The url
   of your Twitch stream is included in the message.
 
-### Twitch chat commands
+### Twitch
 
 On Twitch, beem uses the account *r4nr*, and responds to commands using the
 `!r4nr` prefix. You can always find r4nr listening in its own chat at:
@@ -270,11 +178,11 @@ https://www.twitch.tv/r4nr/
 From there you can run any of the commands below. Once r4nr has joined your
 Twitch chat, it will respond to DCSS bot commands as well as `!r4nr` commands.
 
-Here are the bot commands r4nr recognizes:
-
 - `!r4nr nick [<name>]`
 
-  Set the nick r4nr will use for you when making Sequell queries.
+  Set the nick beem will use for you when making queries to Sequell. This is
+  important to set if your Twitch username isn't the same as your WebTiles
+  account or Sequell nick.
 
 - `!r4nr join`
 
@@ -290,8 +198,8 @@ Here are the bot commands r4nr recognizes:
   Run this command in your chat after you're done streaming and no longer need
   r4nr.
 
-If there are too many requests to watch Twitch channels, r4nr will leave your
-chat as necessary after it becomes idle for at least 30 minutes. Running `!r4nr
-part` after you're done streaming (or otherwise no longer need the bot) frees
-it from having to track your channel and is nice to do for your fellow Twitch
-users.
+  If there are too many requests to watch Twitch channels, r4nr will leave your
+  chat as necessary if it's idle for 30 minutes or more. Running `!r4nr part`
+  after you're done streaming or otherwise no longer need the bot frees it from
+  having to track your channel, which is nice to do for your fellow Twitch
+  users.
