@@ -77,7 +77,7 @@ class chat_listener():
             break
 
         if not command_func:
-            yield from self.send_chat("Unkown command. Type !{} help for "
+            yield from self.send_chat("Unknown command. Type !{} help for "
                                       "assistance".format(self.bot_name))
             return
 
@@ -102,6 +102,11 @@ class chat_listener():
                       sender, target_user, command)
 
     def get_nick(self, username):
+        """Return the nick we have mapped for the given user. Return the
+        username if no such mapping exists.
+
+        """
+
         user_data = config.get_user_data(self.service, username)
         if not user_data or not user_data["nick"]:
             return username
@@ -128,6 +133,8 @@ class chat_listener():
 
     @asyncio.coroutine
     def read_chat(self, sender, message):
+        """Read a chat message and process any beem or DCSS commands"""
+
         if not self._is_allowed_user(sender):
             return
 
@@ -163,6 +170,8 @@ class chat_listener():
 
 @asyncio.coroutine
 def nick_command(source, target_user, nick=None):
+    """`!<bot-name> nick` chat command for both WebTiles and Twitch"""
+
     user_data = config.get_user_data(source.service, target_user)
     if not nick:
         if not user_data or not user_data["nick"]:
@@ -181,7 +190,10 @@ def nick_command(source, target_user, nick=None):
         "Nick for user {} set to {}".format(target_user, nick))
 
 def is_bot_command(message):
-    """Messages that might get parsed by other bots and will need escaping"""
+    """Check if the messages might get parsed by other chat bots and will
+    need escaping.
+
+    """
 
     return (dcss.is_dcss_command(message)
             or message[0] == "!"

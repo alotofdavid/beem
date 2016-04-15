@@ -1,3 +1,6 @@
+"""Define the `webtiles.manager` WebTiles manager instance and WebTiles service
+data."""
+
 import asyncio
 import json
 import logging
@@ -25,6 +28,11 @@ _LOGIN_TIMEOUT = 30
 _RELISTEN_WAIT = 5
 
 class webtiles_connection():
+    """A websocket connection to a WebTiles server. Used as a base class for
+    `lobby_connection` and `game_connection`.
+
+    """
+
     def __init__(self):
         super().__init__()
         self._decomp = zlib.decompressobj(-zlib.MAX_WBITS)
@@ -56,7 +64,8 @@ class webtiles_connection():
         try:
             yield from self._send({"msg"      : "login",
                                    "username" : wtconf["username"],
-                                   "password" : wtconf["password"]})
+
+    "password" : wtconf["password"]})
         except Exception as e:
             err_reason = type(e).__name__
             if e.args:
@@ -66,6 +75,8 @@ class webtiles_connection():
             raise
 
     def connected(self):
+        """Return true if the websocket is connected."""
+
         return self._websocket and self._websocket.open
 
     def _login_timeout(self):
@@ -75,11 +86,10 @@ class webtiles_connection():
 
     @asyncio.coroutine
     def stop(self):
-        if self._websocket:
-            try:
-                yield from self._websocket.close()
-            except:
-                pass
+        """Close the websocket if it's open and reset the connection state"""
+
+        if self.connected():
+            yield from self._websocket.close()
         self._websocket = None
         self._time_connected = None
         self._logged_in = False
@@ -151,6 +161,12 @@ class webtiles_connection():
 
 
 class lobby_connection(webtiles_connection):
+    """Lobby websocket connection that watches for lobby data from the WebTiles
+    server, updating its entries. This data is used by `webtiles_manager` to
+    decide when to listen and stop listening to games.
+
+    """
+
     def __init__(self):
         super().__init__()
         self.entries = []
@@ -164,6 +180,8 @@ class lobby_connection(webtiles_connection):
 
     @asyncio.coroutine
     def stop(self):
+        """Shut down the lobby connection"""
+
         self.entries = []
         self.complete = False
         yield from super().stop()
@@ -201,6 +219,8 @@ class lobby_connection(webtiles_connection):
             yield from self._handle_message(message)
 
     def get_entry(self, username, game_id):
+        """Get the lobby entry of a game"""
+
         for entry in self.entries:
             if entry["username"] == username and entry["game_id"] == game_id:
                 return entry
@@ -240,6 +260,10 @@ class lobby_connection(webtiles_connection):
         return False
 
 class game_connection(webtiles_connection, chat.chat_listener):
+    """A game websocket connection that listens to chat and responds to commands.
+
+    """
+
     def __init__(self):
         super().__init__()
         self.service = "webtiles"
@@ -256,6 +280,12 @@ class game_connection(webtiles_connection, chat.chat_listener):
         self.finished = False
 
     def get_source_key(self):
+        """Get a unique identifier tuple of the game for this connection.
+        Identifies this game connection as a source for chat listening. This is
+        used to map DCSS queries to their results as they're received.
+
+        """
+
         return (self.service, self.username, self.game_id)
 
     def get_task(self):
@@ -270,6 +300,8 @@ class game_connection(webtiles_connection, chat.chat_listener):
 
     @asyncio.coroutine
     def stop(self):
+        """Shut down the game connection"""
+
         self.listening = False
         self.username = None
         self.game_id = None
@@ -373,8 +405,9 @@ class game_connection(webtiles_connection, chat.chat_listener):
 
     @asyncio.coroutine
     def send_chat(self, message, is_action=False):
-        """Send WebTiles chat message. This will shut down the game connection if
-        an error occurs and log the event, but not raise to the caller.
+        """Send a WebTiles chat message. We currently shut down the game
+        connection if an error occurs and log the event, but don't raise to the
+        caller, since we don't care to take any action.
 
         """
 
@@ -398,6 +431,12 @@ class game_connection(webtiles_connection, chat.chat_listener):
 
     @asyncio.coroutine
     def listen_game(self, username, game_id):
+        """Listen to the given game. After calling this method, the connection
+        won't be in a 'listening' state until it receives a watch
+        acknowledgement from the WebTiles server.
+
+        """
+
         self.username = username
         self.game_id = game_id
         user_data = config.get_user_data("webtiles", username)
@@ -840,6 +879,8 @@ def _game_allowed(username, game_id):
 
 @asyncio.coroutine
 def _subscribe_command(source, target_user):
+    """`!<bot-name> subscribe` chat command"""
+
     user_data = config.get_user_data("webtiles", target_user)
     if not user_data:
         user_data = config.register_user("webtiles", target_user)
@@ -856,6 +897,8 @@ def _subscribe_command(source, target_user):
 
 @asyncio.coroutine
 def _unsubscribe_command(source, target_user):
+    """`!<bot-name> unsubscribe` chat command"""
+
     user_data = config.get_user_data("webtiles", target_user)
     if not user_data:
         user_data = config.register_user("webtiles", target_user)
@@ -875,6 +918,8 @@ def _unsubscribe_command(source, target_user):
 
 @asyncio.coroutine
 def _twitch_user_command(source, target_user, twitch_user=None):
+    """`!<bot-name> twitch-user` chat command"""
+
     user_data = config.get_user_data("webtiles", target_user)
     if not twitch_user:
         if not user_data:
@@ -901,6 +946,8 @@ def _twitch_user_command(source, target_user, twitch_user=None):
 
 @asyncio.coroutine
 def _twitch_reminder_command(source, target_user, state=None):
+    """`!<bot-name> twitch-reminder` chat command"""
+
     user_data = config.get_user_data("webtiles", target_user)
     if not user_data:
         yield from source.send_chat("User {} is not registered".format(
@@ -923,7 +970,10 @@ def _twitch_reminder_command(source, target_user, state=None):
     yield from source.send_chat("Twitch reminder {} for user {}".format(
         state_desc, target_user))
 
+# The WebTiles manager instance created when the module is loaded.
 manager = webtiles_manager()
+
+# WebTiles service data
 config.services["webtiles"] = {
     "name"                : "WebTiles",
     "manager"             : manager,

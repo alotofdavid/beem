@@ -1,3 +1,8 @@
+"""Defines the `config.conf` beem configuration instance and functions
+for looking up and modifying the user DB.
+
+"""
+
 import sqlite3
 import logging
 import os
@@ -7,9 +12,9 @@ import pytoml
 _DEFAULT_CONFIG_PATH = "./beem_config.toml"
 
 class beem_config(object):
-    """Object representing beem configuration.
+    """Holds the beem configuration data loaded from the TOML file. There
+    is one instance of this class available as `config.conf`.
 
-    One instance of this class should exist in the application.
     """
 
     def __init__(self, path=_DEFAULT_CONFIG_PATH):
@@ -23,6 +28,11 @@ class beem_config(object):
             raise AttributeError(name)
 
     def get(self, *args):
+        """Allow directly accessing attributes to get the corresponding TOML
+        data.
+
+        """
+
         return self._data.get(*args)
 
     def _require_fields(self, table, fields):
@@ -166,6 +176,8 @@ class beem_config(object):
             _error("At least one service must be enabled")
 
     def user_is_admin(self, service, user):
+        """Return True if the user is a beem admin for the given service."""
+
         admins = self.get(service).get("admins")
         if not admins:
             return False
@@ -176,6 +188,8 @@ class beem_config(object):
         return False
 
     def service_enabled(self, service):
+        """Return True if the given service is enabled in the configuration"""
+
         assert service in services
 
         return self.get(service) and self.get(service).get("enabled")
@@ -227,6 +241,12 @@ def _ensure_user_db_exists():
             conn.close()
 
 def load_user_db():
+    """Load the user database from the sqlite3 DB, creating one if
+    necessary. The sqlite3 data are loaded into an in-memory copy that
+    can be retrieved through `get_user_data()`.
+
+    """
+
     conn = None
     c = None
 
@@ -263,6 +283,11 @@ def load_user_db():
     _log.info("Loaded data for {} users".format(", ".join(msgs)))
 
 def register_user(service, username):
+    """Register the user for the given service in the user DB and make an
+    entry in the in-memory copy of the DB.
+
+    """
+
     conn = None
     c = None
 
@@ -308,6 +333,11 @@ def register_user(service, username):
     return user_entry
 
 def set_user_field(service, username, field, value):
+    """Set a field for the user of the given service in the userDB and
+    update the in-memory copy of the DB.
+
+    """
+
     entry = get_user_data(service, username)
     if not entry:
         raise Exception("user not found")
@@ -336,9 +366,20 @@ def set_user_field(service, username, field, value):
     entry[field] = value
 
 def get_user_data(service, username):
+    """Get the user's data for the given service from the in-memory copy
+    of the user DB. This handles the case-insensitivity of the
+    username lookup.
+
+    """
+
     return _user_data[service].get(username.lower())
 
+# Service data is available from this module, but the entries are set
+# by the appropriate module.
 services = {}
 _user_data = {}
+
+# This beem configuration instance available to other modules.
 conf = beem_config()
+
 _log = logging.getLogger()

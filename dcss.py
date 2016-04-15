@@ -1,3 +1,8 @@
+"""Defines the `dcss.manager` instance and functions for checking
+messages for knowledge bot commands.
+
+"""
+
 import asyncio
 import irc.client
 import logging
@@ -20,6 +25,13 @@ _MAX_REQUEST_TIME = 80
 _RECONNECT_TIMEOUT = 10
 
 class dcss_manager():
+    """DCSS manager. Responsible for managing the Freenode IRC connection,
+    sending queries the knowledge bots and sending the results to the
+    right source chat. There is one instance of this object available
+    as `dcss.manager`.
+
+    """
+
     ## Can't depend on config.conf, as this isn't loaded yet.
     def __init__(self):
         self.logged_in = False
@@ -381,4 +393,5 @@ def _get_service_by_prefix(prefix):
         if prefix == data["prefix"]:
             return service
 
+# The single dcss manager instance available to other modules.
 manager = dcss_manager()

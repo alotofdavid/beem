@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-"""
-beem
+"""beem: a multi-user chat bot that can relay queries to the IRC
+knowledge bots for DCSS from WebTiles or Twitch chat.
 
 """
 
@@ -18,12 +18,19 @@ import dcss
 import twitch
 import webtiles
 
-## Initial config is empty, will be loaded by beem_server
+## Initial config is empty, will be loaded by beem_server.
 _conf = config.conf
-## Will configured when beem_server is started
+
+## Will be configured by beem_server after the config is loaded.
 _log = logging.getLogger()
 
 class beem_server:
+    """The beem server. Load the beem_configuration instance and runs the
+    tasks for the DCSS manager and the managers of any services
+    enabled in the config.
+
+    """
+
     def __init__(self, config_file=None):
         self._dcss_task = None
         self._twitch_task = None
@@ -81,6 +88,11 @@ class beem_server:
                                       _conf.twitch["listen_user"])
 
     def start(self):
+        """Start the server, set up the event loop and signal handlers,
+        and exit when the manager tasks finish.
+
+        """
+
         _log.info("Starting beem server.")
 
         def do_exit(signame):
@@ -100,6 +112,11 @@ class beem_server:
 
     @asyncio.coroutine
     def stop(self, is_error=False):
+        """Stop the server by canceling any ongoing manager tasks, which
+        will cause this beem server process to exit.
+
+        """
+
         _log.info("Stopping beem server.")
         self._shutdown_error = is_error
 

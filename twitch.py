@@ -1,3 +1,6 @@
+"""Define the `twitch.manager` Twitch manager instance and Twitch
+service data"""
+
 import asyncio
 import irc.client
 import functools
@@ -15,6 +18,11 @@ _conf = config.conf
 _log = logging.getLogger()
 
 class twitch_channel(chat.chat_listener):
+    """Holds data for a single Twitch channel and sends chat commands to
+    `twitch.manager`.
+
+    """
+
     def __init__(self, username):
         super().__init__()
         self.username = username
@@ -26,10 +34,23 @@ class twitch_channel(chat.chat_listener):
         self.is_moderator = False
 
     def get_source_key(self):
+        """Get a unique identifier tuple of the game for this connection.
+        Identifies this game connection as a source for chat
+        listening. This is used to map DCSS queries to their results
+        as they're received.
+
+        """
+
         return (self.service, self.username)
 
     @asyncio.coroutine
     def send_chat(self, message, is_action=False):
+        """Send a Twitch chat message. We currently shut down the game
+        connection if an error occurs and log the event, but don't raise to the
+        caller, since we don't care to take any action.
+
+        """
+
         ## These are interpreted by the Twitch irc server, so prepend a
         ## space, which will get removed by the server anyhow.
         if message[0] == "." or message[0] == "/":
@@ -311,6 +332,13 @@ class twitch_manager():
         _log.info("Twitch: Joining channel of user %s", channel.username)
 
     def send_channel(self, channel, message, is_action=False):
+        """Send a message to the given channel. If `is_action` is True, the
+        message will be an IRC action message, which is displayed
+        differently in chat. If an error occurs, we log the event, but
+        don't raise to the caller, since we don't care to take any
+        action.
+
+        """
 
         if self._message_limited(not channel.is_moderator):
             _log.info("Twitch: Didn't send chat message for channel %s due to "
@@ -327,7 +355,8 @@ class twitch_manager():
         try:
             send_func(channel.irc_channel, message)
         except irc.client.IRCError as e:
-            _log.error("Twitch: Unable to send chat message: %s", e.args[0])
+            _log.error("Twitch: Unable to send chat message (listen user: %s, "
+                       "error: %s): %s", channel.username, e.args[0], message)
             return
 
         channel.time_last_message = time.time()
@@ -339,6 +368,8 @@ class twitch_manager():
 
     @asyncio.coroutine
     def join_command(self, source, target_user):
+        """`!<bot-name> join` chat command"""
+
         user_data = config.get_user_data("twitch", target_user)
         if not user_data:
             user_data = config.register_user("twitch", target_user)
@@ -361,6 +392,8 @@ class twitch_manager():
 
     @asyncio.coroutine
     def part_command(self, source, target_user):
+        """`!<bot-name> part` chat command"""
+
         user_data = config.get_user_data("twitch", target_user)
         if not user_data:
             yield from source.send_chat(
@@ -395,13 +428,12 @@ def _can_listen_user(user):
     return True
 
 def _able_to_listen():
-    """Are we presently able to listen to any game?"""
-
-    # Don't listen to games if dcss irc isn't ready.
     return _conf.service_enabled("twitch") and dcss.manager.logged_in
 
-
+# The Twitch manager instance created when the module is loaded.
 manager = twitch_manager()
+
+# Twitch service data
 config.services["twitch"] = {
     "name"                : "Twitch",
     "manager"             : manager,
