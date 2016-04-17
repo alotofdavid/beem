@@ -560,12 +560,14 @@ class webtiles_manager():
         """Get any existing connection for the given game."""
 
         if (self._autolisten
+            and self._autolisten.username
             and self._autolisten.username == username
             and self._autolisten.game_id == game_id):
             return self._autolisten
 
         for conn in self._subscriber_conns:
-            if (conn.username == username
+            if (conn.username
+                and conn.username == username
                 and conn.game_id == game_id):
                 return conn
 
@@ -577,7 +579,7 @@ class webtiles_manager():
     @asyncio.coroutine
     def _new_subscriber_conn(self, username, game_id):
         for conn in self._subscriber_conns:
-            if not conn.listening and not conn.finished:
+            if not conn.username and not conn.finished:
                 try:
                     yield from conn.listen_game(username, game_id)
                 except:
