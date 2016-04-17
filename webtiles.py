@@ -471,12 +471,16 @@ class game_connection(webtiles_connection, chat.chat_listener):
             try:
                 yield from self._send({"msg" : "go_lobby"})
             except Exception as e:
-                _log.error("WebTiles: Websocket connection for user %s closed "
-                           "when sending go_lobby command", self.username)
+                err_reason = type(e).__name__
+                if e.args:
+                    err_reason = e.args[0]
+                _log.error("WebTiles: Unable to send go_lobby command for user "
+                           "%s: %s", self.username, err_reason)
                 yield from self.stop()
+
         if self.listening:
             self._last_listen_time = time.time()
-            manager.listen_end(self)
+            manager.set_listen_end(self)
         self.listening = False
         self.username = None
         self.game_id = None
@@ -489,11 +493,10 @@ class game_connection(webtiles_connection, chat.chat_listener):
 
         if message["msg"] == "watching_started":
             self.listening = True
-            _log.info("WebTiles: Listening to %s", self.username)
+            _log.info("WebTiles: Listening to user %s", self.username)
             return True
 
         if message["msg"] == "update_spectators":
-            _log.debug("Got spectator string: %s", message["names"])
             # Strip of html tags from names
             names = re.sub(r'</?(a|span)[^>]*>', "", message["names"])
             # Ignore the Anons.
@@ -511,13 +514,13 @@ class game_connection(webtiles_connection, chat.chat_listener):
             return False
 
         if message["msg"] == "game_ended":
-            _log.info("WebTiles: Game ended for %s", self.username)
+            _log.info("WebTiles: Game ended for user %s", self.username)
             yield from self.stop_listening()
             return True
 
         if message["msg"] == "go_lobby":
             # The game we were watching stopped for some reason.
-            _log.warning("Received go_lobby while listening to %s.",
+            _log.warning("Received go_lobby while listening to user %s.",
                          self.username)
             yield from self.stop_listening()
             return True
@@ -659,74 +662,113 @@ class webtiles_manager():
         return self._queue_task
 
     @asyncio.coroutine
+    def _autolisten_game(self, game):
+        username, game_id = game
+        if (self._autolisten
+            and self._autolisten.username == username
+            and self._autolisten.game_id == game_id):
+            return
+
+        _log.info("WebTiles: Found new autolisten user %s", username)
+        if self._autolisten:
+            _log.info("WebTiles: Stopping autolisten for user %s: new "
+                      "autolisten game found", self._autolisten.username)
+        else:
+            self._autolisten = game_connection()
+        try:
+            yield from self._autolisten.listen_game(username, game_id)
+        except:
+            self._autolisten = None
+
+    @asyncio.coroutine
+    def _check_current_autolisten(self):
+        """When we don't find a new autolisten candidate, check that we're still
+        able to watch our present autolisten game.
+
+        """
+
+        if not self._autolisten:
+            return
+
+        wtconf = _conf.webtiles
+        lobby_entry = None
+        for entry in self._lobby.entries:
+            if (entry["username"] == self._autolisten.username
+                and entry["game_id"] == self._autolisten.game_id):
+                lobby_entry = entry
+                break
+
+        # Game no longer has a lobby entry, but let the connection itself
+        # handle any stop watching event from the server.
+        if not lobby_entry:
+            return
+
+        # See if this game is no longer eligable for autolisten. We don't
+        # require a min. spectator count after the initial autolisten, since
+        # doing so just leads to a lot of flucutation in autolistening.
+        idle_time = (lobby_entry["idle_time"] +
+                     time.time() - lobby_entry["time_update"])
+        game_allowed = _game_allowed(self._autolisten.username,
+                                     self._autolisten.game_id)
+        end_reason = None
+        if not game_allowed:
+            end_reason = "Game disallowed"
+        elif not dcss.manager.logged_in:
+            end_reason = "DCSS not ready"
+        elif idle_time >= wtconf["max_game_idle"]:
+            end_reason = "Game idle"
+        else:
+            return
+
+        _log.info("WebTiles: Stopping autolisten for user %s: %s",
+                  self._autolisten.username, end_reason)
+        yield from self._autolisten.stop_listening(True)
+
+    @asyncio.coroutine
     def _process_lobby(self):
-        """Process lobby entries, adding games to the watch queue and checking for an
-        autowatch candidate if need be.
+        """Process lobby entries, adding games to the watch queue and return an
+        autowatch candidate if one is found.
 
         """
 
         wtconf = _conf.webtiles
-        autolisten_username = None
-        autolisten_game_id = None
-        spectator_max = -1
+        min_spectators = wtconf["min_autolisten_spectators"]
+        max_subscribers = wtconf["max_listened_subscribers"]
+        autolisten_spectators = -1
+        current_time = time.time()
+        autolisten_game = None
         for entry in self._lobby.entries:
             idle_time = (entry["idle_time"] +
-                         time.time() - entry["time_update"])
+                         current_time - entry["time_update"])
             if (not _game_allowed(entry["username"], entry["game_id"])
                 or idle_time >= wtconf["max_game_idle"]):
                 continue
 
-            specs = entry["spectator_count"]
+            conn = self._get_connection(entry["username"], entry["game_id"])
+            # Find an autolisten candidate
             if (wtconf.get("autolisten_enabled")
-                and _able_to_listen()
-                and specs >= wtconf["min_autolisten_spectators"]
-                and specs > spectator_max):
-                autolisten_username = entry["username"]
-                autolisten_game_id = entry["game_id"]
-                spectator_max = entry["spectator_count"]
+                and dcss.manager.logged_in
+                # Only subscribers who don't have subscriber slots are valid
+                # autolisten candidates.
+                and (not _user_is_subscribed(entry["username"])
+                     or not conn in self._subscriber_conns
+                     and len(self._subscriber_conns) >= max_subscribers)
+                and entry["spectator_count"] >= min_spectators
+                # If there's a tie, favor a game we're already autolistening
+                # instead of letting the order of iteration decide.
+                and (conn
+                     and conn is self._autolisten
+                     and entry["spectator_count"] == autolisten_spectators
+                     or entry["spectator_count"] > autolisten_spectators)):
+                autolisten_spectators = entry["spectator_count"]
+                autolisten_game = (entry["username"], entry["game_id"])
 
-            if (_should_listen_user(entry["username"])
+            if (_user_is_subscribed(entry["username"])
                 and not self._get_queue_entry(entry["username"],
                                               entry["game_id"])):
                 self._add_queue(entry["username"], entry["game_id"])
 
-        # Handle autolisten
-        max_subs = wtconf["max_listened_subscribers"]
-        if autolisten_username:
-            conn = self._get_connection(autolisten_username, autolisten_game_id)
-            if conn:
-                # Autolisten candidate is already being watched as a
-                # subscriber.
-                if conn in self._subscriber_conns:
-                    autolisten_username = None
-
-                # A subscriber who's been autolistened now has an available
-                # subscription slot. Give them a slot before giving one to
-                # anyone else.
-                elif (conn is self._autolisten
-                      and _should_listen_user(autolisten_username)
-                      and len(self._subscriber_conns) < max_subs):
-                    self._subscriber_conns.add(self._autolisten)
-                    self._autolisten = None
-            # We found a game to autolisten
-            else:
-                _log.info("WebTiles: Attempting autolisten for user %s",
-                          autolisten_username)
-                if not self._autolisten:
-                    self._autolisten = game_connection()
-                try:
-                    yield from self._autolisten.listen_game(autolisten_username,
-                                                            autolisten_game_id)
-                except:
-                    self._autolisten = None
-
-        # We don't have a valid game, so we shouldn't be autolistening.
-        if (self._autolisten
-            and self._autolisten.listening
-            and not autolisten_username):
-            _log.info("WebTiles: Stop autolistening for %s",
-                      self._autolisten.username)
-            yield from self._autolisten.stop_listening(True)
+        return autolisten_game
 
     @asyncio.coroutine
     def _process_queue(self):
@@ -735,6 +777,7 @@ class webtiles_manager():
         """
 
         wtconf = _conf.webtiles
+        max_subscribers = wtconf["max_listened_subscribers"]
         relisten_timeout = wtconf["game_relisten_timeout"]
         for entry in list(self._listen_queue):
             lobby = self._lobby.get_entry(entry["username"], entry["game_id"])
@@ -747,31 +790,40 @@ class webtiles_manager():
             allowed = _game_allowed(entry["username"], entry["game_id"])
             wait = (entry["time_end"]
                     and time.time() - entry["time_end"] < _RELISTEN_WAIT)
-            expireable = (not entry["time_end"]
-                          or time.time() - entry["time_end"] >= relisten_timeout)
-            able = _able_to_listen()
-            if conn and (not able or not allowed or idle):
-                if not able:
-                    reason = "No longer able"
-                elif not allowed:
-                    reason = "No longer allowed"
-                else:
-                    reason = "Game idle"
-                yield from conn.stop_listening(True)
-                _log.info("WebTiles: Stop listening to %s: %s",
-                          entry["username"], reason)
+            expired = (not entry["time_end"]
+                       or time.time() - entry["time_end"] >= relisten_timeout)
+            if conn:
+                end_reason = None
+                if not allowed:
+                    end_reason = "Game disallowed"
+                if not dcss.manager.logged_in:
+                    end_reason = "DCSS not ready"
+                elif idle:
+                    end_reason = "Game idle"
+                if end_reason:
+                    _log.info("WebTiles: Stopping listen for user %s: %s",
+                              entry["username"], end_reason)
+                    yield from conn.stop_listening(True)
+                # An autolistened subscriber without a subscriber slot now has
+                # one.
+                elif (conn is self._autolisten
+                      and len(self._subscriber_conns) < max_subscribers):
+                    self._subscriber_conns.add(conn)
+                    self._autolisten = None
+                    continue
+
             # The game is no longer eligable or been offline for sufficiently
             # long.
-            if not allowed or idle or not lobby and expireable:
+            if not allowed or idle or not lobby and expired:
                 self._listen_queue.remove(entry)
                 continue
 
-            # We can't listen yet or we already have a designated connection.
-            if not _able_to_listen() or not lobby or wait or conn:
+            # We can't listen yet or they already have a subscriber slot.
+            if not dcss.manager.logged_in or not lobby or wait or conn:
                 continue
 
-            # Try to give the game a subscriber slot. If it fails, the entry
-            # will remain in the queue until the entry expires.
+            # Try to give the game a subscriber slot. If this fails, the entry
+            # will remain in the queue for subsequent attempts.
             yield from self._new_subscriber_conn(entry["username"],
                                                  entry["game_id"])
 
@@ -781,10 +833,15 @@ class webtiles_manager():
 
         assert(self._lobby)
 
+        autolisten_game = None
         if self._lobby.complete:
-            yield from self._process_lobby()
-        yield from self._process_queue()
+            autolisten_game = yield from self._process_lobby()
+        if autolisten_game:
+            yield from self._autolisten_game(autolisten_game)
+        else:
+            yield from self._check_current_autolisten()
 
+        yield from self._process_queue()
 
         if (self._autolisten
             and self._autolisten.finished
@@ -795,10 +852,10 @@ class webtiles_manager():
             if conn.finished and conn.get_task() is None:
                 self._subscriber_conns.remove(conn)
 
-        # Update the queue once per second
+        # The manager updates once per second.
         yield from asyncio.sleep(1)
 
-    def listen_end(self, conn):
+    def set_listen_end(self, conn):
         queue = self._get_queue_entry(conn.username, conn.game_id)
         if not queue:
             return
@@ -828,13 +885,6 @@ def _parse_chat(message):
     command = command.replace("&nbsp;", " ")
     return (user, command)
 
-def _able_to_listen():
-    """Are we presently able to listen to any game?"""
-
-    # Don't listen to games if dcss irc isn't ready.
-    return _conf.service_enabled("webtiles") and dcss.manager.logged_in
-
-
 def _can_listen_user(user):
     if _conf.get("single_user"):
         return user == _conf.webtiles["listen_user"]
@@ -850,7 +900,7 @@ def _can_listen_user(user):
 
     return True
 
-def _should_listen_user(user):
+def _user_is_subscribed(user):
     # User is subscribed.
     user_data = config.get_user_data("webtiles", user)
     return user_data and user_data["subscription"] > 0
