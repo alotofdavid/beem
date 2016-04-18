@@ -726,7 +726,6 @@ class webtiles_manager():
                   self._autolisten.username, end_reason)
         yield from self._autolisten.stop_listening(True)
 
-    @asyncio.coroutine
     def _process_lobby(self):
         """Process lobby entries, adding games to the watch queue and return an
         autowatch candidate if one is found.
@@ -837,7 +836,7 @@ class webtiles_manager():
 
         autolisten_game = None
         if self._lobby.complete:
-            autolisten_game = yield from self._process_lobby()
+            autolisten_game = self._process_lobby()
         if autolisten_game:
             yield from self._autolisten_game(autolisten_game)
         else:
