@@ -37,10 +37,17 @@ A quick guide to the types of knowledge commands beem recognizes.
 
 ### Monster lookup:
 
-  Look up monster statistics:
+  Look up monster statistics with the prefix `@??`:
 
     @??the royal jelly
     @??orb_guardian perm_ench:berserk
+
+  Alternately look up monsters using the bot Cheibriados with the prefix
+  `%??`. Cheibriados also has monster information from some previous versions
+  of Crawl:
+
+    %??the royal jelly
+    %0.15?cigotuvi's monster
 
 ### List games and milestones
 
@@ -115,8 +122,8 @@ A quick guide to the types of knowledge commands beem recognizes.
 
   Look up commits in the official crawl github repository by commit or branch:
 
-        %git stone_soup-0.17
         %git 0a147b9
+        %git stone_soup-0.17
 
   Search for the most recent commit matching a string:
 
