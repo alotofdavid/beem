@@ -64,8 +64,7 @@ class webtiles_connection():
         try:
             yield from self._send({"msg"      : "login",
                                    "username" : wtconf["username"],
-
-    "password" : wtconf["password"]})
+                                   "password" : wtconf["password"]})
         except Exception as e:
             err_reason = type(e).__name__
             if e.args:
