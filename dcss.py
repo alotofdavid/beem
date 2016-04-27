@@ -229,7 +229,7 @@ class dcss_manager():
             raise
 
     def _get_dcss_source(self, nick, message):
-        monster_pattern = r'Invalid|unknown|bad|[^()|]+ \(.\) \|'
+        monster_pattern = r'Monster stats|Invalid|unknown|bad|[^()|]+ \(.\) \|'
         if nick == _conf.dcss["sequell_nick"]:
             match = re.match(r"^([0-9]{{{}}})".format(_QUERY_ID_DIGITS),
                              message)
