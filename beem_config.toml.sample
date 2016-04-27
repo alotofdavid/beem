@@ -180,7 +180,7 @@ bad_patterns = [
 # Moobot
 '^!(commercial|currentsong|game |moobot|nextsong|permit|raffle|shoutout|skipsong|songlist|songrequest|title |volume|vote|wrongsong)',
 # Nightbot
-'^!(commands|filters|poll |regulars|songs|winner)'
+'^!(commands|filters|poll |regulars|songs|winner|sr)'
 ]
 
 # According to
