@@ -13,8 +13,9 @@ user_db = "user_data.db3"
 command_limit = 8
 command_period = 20
 
-# If true, listen_user field must be set in the tables below for whichever of
-# WebTiles/Twitch you want to use. The bot will then only serve that user.
+# If true, set the `watch_user` field in the webtiles table and/or the
+# the twitch table to use those services. The bot will then only serve
+# that user.
 single_user = true
 
 
@@ -87,23 +88,23 @@ enabled = true
 server_url = "ws://localhost:8080/socket"
 
 # When single user mode is active, this field must be set to a valid user
-# name. The bot will only watch for and listen to the games of this user.
-# listen_user = ""
+# name. The bot will only watch the games of this user.
+# watch_user = ""
 
 # Max time in seconds a game connection can be idle (not watching a game)
 # before the bot will shut it down. The server will reuse such connections as
-# necessary. This should be longer than game_relisten_timeout.
+# necessary. This should be longer than game_rewatch_timeout.
 max_connection_idle = 60
 
 # The WebTiles settings below are only relevant if not using single_user
 
 # A list of users to never watch.
-# never_listen = []
+# never_watch = []
 
-# Maximum number of subscribers the bot will listen to on a server when not in
+# Maximum number of subscribers the bot will watch on a server when not in
 # single user mode. This number is independent of connection reserved for the
-# autolisten feature. If you're using single_user mode, this should be 1.
-max_listened_subscribers = 1
+# autowatch feature. If you're using single_user mode, this should be 1.
+max_watched_subscribers = 1
 
 # Max time in seconds a game can be idle before the bot will refuse to spectate
 # a game or leave a game it is watching. This shouldn't be too low or a game
@@ -112,9 +113,9 @@ max_listened_subscribers = 1
 max_game_idle = 600
 
 # Max time in seconds to wait after a game ends before removing it from the
-# listen queue. A user that rejoins before this period end won't lose their
+# watch queue. A user that rejoins before this period end won't lose their
 # designated slot.
-game_relisten_timeout = 30
+game_rewatch_timeout = 30
 
 # Send when users issue !<bot-name> help
 help_text = """I'm a bot that sends commands to the DCSS IRC knowledge
@@ -124,15 +125,15 @@ watch your games on this server, type: !%n subscribe"""
 
 # Set this to true to have beem use a dedicated connection to watch the most
 # spectated non-idle game on the server. Note the connection used is
-# independent of the limit in `max_listened_subscribers' above.
-# autolisten_enabled = true
+# independent of the limit in `max_watched_subscribers' above.
+# autowatch_enabled = true
 
-# The minimum spectators required for the bot to consider autolistening to a
+# The minimum spectators required for the bot to consider autowatching to a
 # game.
-min_autolisten_spectators = 3
+min_autowatch_spectators = 3
 
-# If autolisten is enabled and this variable is defined, give a greeting
-# message when the bot first autolistens to a game. In this string, %n is
+# If autowatch is enabled and this variable is defined, give a greeting
+# message when the bot first autowatches to a game. In this string, %n is
 # replaced with the bot name.
 greeting_text = "I am %n. For help, type: !%n help"
 
@@ -170,7 +171,7 @@ port = 6667
 
 # When single user mode is active, join this chat automatically and refuse
 # to join any others.
-# listen_user = ""
+# watch_user = ""
 
 # Twitch chat messages matching these regular expressions anywhere in the
 # message will not be passed on to any IRC bot. You can add regular expression
@@ -202,11 +203,11 @@ message_timeout = 29
 # admins = []
 
 # Never join the chat of these users.
-# never_listen = []
+# never_watch = []
 
-# Maximum number of Twitch channels the bot will listen to at once. If you're
+# Maximum number of Twitch channels the bot will watch at once. If you're
 # only using the bot for yourself, this should remain at 1.
-max_listened_subscribers = 1
+max_watched_subscribers = 1
 
 # Max chat idle time in seconds. If no chat messages happen for a period this
 # long, the bot may leave the channel if other users have unfulfilled join
@@ -214,7 +215,7 @@ max_listened_subscribers = 1
 max_chat_idle = 1800
 
 # How long after receiving a join request will we continue to fulfill
-# it. Before the request expires, the bot will continue listening to the
+# it. Before the request expires, the bot will continue watching to the
 # requested channel, leaving only when it becomes idle and there are users with
 # Twitch requests
 request_expire_time = 28800

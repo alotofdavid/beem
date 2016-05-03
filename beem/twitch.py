@@ -1,4 +1,4 @@
-"""Define the `twitch.manager` Twitch manager instance and Twitch
+"""Define the `twitch_manager` Twitch manager instance and Twitch
 service data"""
 
 import asyncio
@@ -10,14 +10,14 @@ import re
 import sqlite3
 import time
 
-import chat
-import config
-import dcss
+from .chat import ChatWatcher, is_bot_command, beem_nick_command
+from .config import beem_conf, services
+from .userdb import get_user_data, register_user
+from .dcss import dcss_manager
 
-_conf = config.conf
 _log = logging.getLogger()
 
-class twitch_channel(chat.chat_listener):
+class TwitchChannel(ChatWatcher):
     """Holds data for a single Twitch channel and sends chat commands to
     `twitch.manager`.
 
@@ -25,23 +25,24 @@ class twitch_channel(chat.chat_listener):
 
     def __init__(self, username):
         super().__init__()
-        self.username = username
+        self.game_username = username
         self.service = "twitch"
         self.irc_channel = "#" + username
-        self.bot_name = _conf.twitch["nick"]
-        self._message_count = 0
+        self.bot_name = beem_conf.twitch["nick"]
+        self.message_count = 0
         self.time_last_message = time.time()
         self.is_moderator = False
+        self.spectators = set()
 
     def get_source_key(self):
         """Get a unique identifier tuple of the game for this connection.
         Identifies this game connection as a source for chat
-        listening. This is used to map DCSS queries to their results
+        watching. This is used to map DCSS queries to their results
         as they're received.
 
         """
 
-        return (self.service, self.username)
+        return (self.service, self.game_username)
 
     @asyncio.coroutine
     def send_chat(self, message, is_action=False):
@@ -55,100 +56,101 @@ class twitch_channel(chat.chat_listener):
         ## space, which will get removed by the server anyhow.
         if message[0] == "." or message[0] == "/":
             message = " " + message
-        elif not is_action and chat.is_bot_command(message):
+        elif not is_action and is_bot_command(message):
             message = "]" + message
 
-        manager.send_channel(self, message, is_action)
+        twitch_manager.send_channel(self, message, is_action)
 
 
-class twitch_manager():
-    # Can't depend on config.conf, as the data for this isn't loaded yet.
+class TwitchManager():
+    # Can't depend on beem_config, as the data for this isn't loaded yet.
     def __init__(self):
-        self._channels = set()
-        self._reactor = irc.client.Reactor()
-        self._reactor.add_global_handler("all_events", self._dispatcher, -10)
-        self._server = self._reactor.server()
-        self._logged_in = False
+        self.channels = set()
+        self.reactor = irc.client.Reactor()
+        self.reactor.add_global_handler("all_events", self.dispatcher, -10)
+        self.server = self.reactor.server()
+        self.logged_in = False
 
     @asyncio.coroutine
-    def _connect(self):
+    def connect(self):
         """Connect to Twitch IRC"""
 
-        self._messages = []
-        self._message_count = 0
-        self._channels = set()
-        self._time_last_message = None
-        self._sent_normal_message = False
-        self._logged_in = False
+        self.messages = []
+        self.message_count = 0
+        self.channels = set()
+        self.time_last_message = None
+        self.sent_normal_message = False
+        self.logged_in = False
 
-        if _conf.get("single_user"):
-            self._bot_channel = twitch_channel(_conf.twitch["listen_user"])
+        if beem_conf.get("single_user"):
+            self.bot_channel = TwitchChannel(beem_conf.twitch["watch_user"])
         else:
-            self._bot_channel = twitch_channel(_conf.twitch["nick"])
+            self.bot_channel = TwitchChannel(beem_conf.twitch["nick"])
 
-        if _conf.twitch.get("fake_connect"):
-            self._logged_in = True
+        if beem_conf.twitch.get("fake_connect"):
+            self.logged_in = True
             return
 
-        if self._server.is_connected():
-            self._server.disconnect()
+        if self.server.is_connected():
+            self.server.disconnect()
 
         _log.info("Twitch: Connecting to IRC server %s using nick %s",
-                  _conf.twitch["hostname"], _conf.twitch["nick"])
-        self._server.connect(_conf.twitch["hostname"], _conf.twitch["port"],
-                             _conf.twitch["nick"], _conf.twitch["password"],
-                             None, _conf.twitch["nick"])
+                  beem_conf.twitch["hostname"], beem_conf.twitch["nick"])
+        self.server.connect(beem_conf.twitch["hostname"],
+                            beem_conf.twitch["port"], beem_conf.twitch["nick"],
+                            beem_conf.twitch["password"], None,
+                            beem_conf.twitch["nick"])
         # To get JOIN/PART/USER data
-        self._server.cap("REQ", ":twitch.tv/membership")
-        self._join_channel(self._bot_channel)
-        self._logged_in = True
+        self.server.cap("REQ", ":twitch.tv/membership")
+        self.join_channel(self.bot_channel)
+        self.logged_in = True
 
     def is_connected(self):
         # Make sure _connect() is run once even under fake_connect
-        if _conf.twitch.get("fake_connect") and self._logged_in:
+        if beem_conf.twitch.get("fake_connect") and self.logged_in:
             return True
 
-        return self._server.is_connected()
+        return self.server.is_connected()
 
-    def _timeout_finished(self):
-        timeout = _conf.twitch["message_timeout"]
-        return (self._time_last_message
-                and time.time() - self._time_last_message > timeout)
+    def timeout_finished(self):
+        timeout = beem_conf.twitch["message_timeout"]
+        return (self.time_last_message
+                and time.time() - self.time_last_message > timeout)
 
     def get_source_by_key(self, source_key):
         return self.get_channel(source_key[1])
 
     @asyncio.coroutine
     def start(self):
-        self._listen_queue = []
+        self.watch_queue = []
         _log.info("Twitch: Starting manager")
         while True:
             while not self.is_connected():
                 try:
-                    yield from self._connect()
+                    yield from self.connect()
                 except irc.client.IRCError as e:
                     _log.error("Twitch: IRC error when connecting: {0}".format(
                         e.args[0]))
-                    yield from asyncio.sleep(_conf.reconnect_timeout)
+                    yield from asyncio.sleep(beem_conf.reconnect_timeout)
 
-            if self._timeout_finished():
-                self._message_count = 0
-                self._time_last_message = None
-                self._sent_normal_message = False
+            if self.timeout_finished():
+                self.message_count = 0
+                self.time_last_message = None
+                self.sent_normal_message = False
 
             try:
-                self._reactor.process_once()
+                self.reactor.process_once()
             except irc.client.IRCError as e:
                 _log.error("Twitch: IRC error when reading: {0}".format(
                     e.args[0]))
 
-            yield from self._update_queue()
+            self.update_queue()
 
             ## Handle any incoming messages, sending them to the appropriate
-            ## channel listener.
-            for m in list(self._messages):
+            ## channel watcher.
+            for m in list(self.messages):
                 username, sender, message = m
-                self._messages.remove(m)
+                self.messages.remove(m)
                 chan = self.get_channel(username)
                 if not chan:
                     _log.warning("Twitch: Can't find channel for user: %s",
@@ -165,26 +167,27 @@ class twitch_manager():
         raise.
 
         """
-        if _conf.twitch.get("fake_connect") or not self._server.is_connected():
+        if (beem_conf.twitch.get("fake_connect")
+            or not self.server.is_connected()):
             return
 
         try:
-            self._server.disconnect()
+            self.server.disconnect()
         except Exception as e:
             err_reason = type(e).__name__
             if e.args:
                 err_reason = e.args[0]
             _log.error("Twitch: Error when disconnecting: %s", err_reason)
 
-    def _dispatcher(self, connection, event):
+    def dispatcher(self, connection, event):
         """
         Dispatch events to on_<event.type> method, if present.
         """
 
         if event.type == "pubmsg":
-            self._on_pubmsg(event)
+            self.on_pubmsg(event)
 
-    def _on_pubmsg(self, event):
+    def on_pubmsg(self, event):
         """
         Handle Twitch chat messages
         """
@@ -199,112 +202,112 @@ class twitch_manager():
         # have users use _ and replace this with . for sending to Sequell.
         if message[0] == "_":
             message = "." + message[1:]
-        self._messages.append((username, sender, message))
+        self.messages.append((username, sender, message))
 
-    def _add_queue(self, username):
+    def add_queue(self, username):
         entry = {"username"     : username,
                  "parted"       : False,
                  "time_request" : None}
-        self._listen_queue.append(entry)
+        self.watch_queue.append(entry)
 
-    def _get_queue_entry(self, username):
-        for entry in self._listen_queue:
+    def get_queue_entry(self, username):
+        for entry in self.watch_queue:
             if entry["username"] == username:
                 return entry
 
         return
 
     def get_channel(self, username):
-        if _conf.get("single_user"):
-            if username == _conf.twitch["listen_user"]:
-                return self._bot_channel
+        if beem_conf.get("single_user"):
+            if username == beem_conf.twitch["watch_user"]:
+                return self.bot_channel
             else:
                 return
 
-        elif username == _conf.twitch["nick"]:
-            return self._bot_channel
+        elif username == beem_conf.twitch["nick"]:
+            return self.bot_channel
 
-        for chan in self._channels:
-            if chan.username == username:
+        for chan in self.channels:
+            if chan.game_username == username:
                 return chan
 
         return
 
-    def _stop_listening(self, channel):
-        self._channels.remove(channel)
-        if self._message_limited(True):
+    def stop_watching(self, channel):
+        self.channels.remove(channel)
+        if self.message_limited(True):
             raise Exception("reached message limit")
 
-        self._sent_normal_message = True
-        self._message_count += 1
-        if _conf.twitch.get("fake_connect"):
+        self.sent_normal_message = True
+        self.message_count += 1
+        if beem_conf.twitch.get("fake_connect"):
             return
 
         try:
-            self._server.part(channel.irc_channel)
+            self.server.part(channel.irc_channel)
         except irc.client.IRCError as e:
             raise Exception("irc error: {}".format(e.args[0]))
         else:
-            _log.info("Twitch: Leaving channel of user %s", channel.username)
+            _log.info("Twitch: Leaving channel of user %s",
+                      channel.game_username)
 
-    def _new_channel(self, username):
-        twconf = _conf.twitch
-        if len(self._channels) >= twconf["max_listened_subscribers"]:
+    def new_channel(self, username):
+        twconf = beem_conf.twitch
+        if len(self.channels) >= twconf["max_watched_subscribers"]:
             idle_chan = None
             max_idle = -1
-            for chan in self._channels:
+            for chan in self.channels:
                 idle_time = time.time() - chan.time_last_message
                 if idle_time >= twconf["min_idle"] and idle_time >= max_idle:
                     idle_chan = chan
                     break
 
             if not idle_chan:
-                raise Exception("listening to too many channels")
+                raise Exception("Watching too many channels.")
 
             chan = idle_chan
-            self._stop_listening(idle_chan)
+            self.stop_watching(idle_chan)
         else:
-            chan = twitch_channel(username)
+            chan = TwitchChannel(username)
 
-        self._join_channel(chan)
-        self._channels.add(chan)
+        self.join_channel(chan)
+        self.channels.add(chan)
 
-    @asyncio.coroutine
-    def _update_queue(self):
-        twconf = _conf.twitch
+    def update_queue(self):
+        twconf = beem_conf.twitch
         expire_time = twconf["request_expire_time"]
         max_idle = twconf["max_chat_idle"]
-        # Update the subscriber listen queue, joining/parting channels as
+        # Update the subscriber watch queue, joining/parting channels as
         # necessary.
-        able = _able_to_listen()
-        for entry in list(self._listen_queue):
+        able = able_to_watch()
+        for entry in list(self.watch_queue):
             chan = self.get_channel(entry["username"])
-            allowed = _can_listen_user(entry["username"])
+            allowed = can_watch_user(entry["username"])
             expired = (entry["time_request"]
                        and time.time() - entry["time_request"] >= expire_time)
             if (chan
                 and (not able or not allowed or entry["parted"] or expired)):
                 try:
-                    self._stop_listening(chan)
+                    self.stop_watching(chan)
                 except Exception as e:
                     err_reason = type(e).__name__
                     if e.args:
                         err_reason = e.args[0]
                     _log.error("Twitch: Unable to send part message for user "
-                               "%s: ", chan.username, err_reason)
+                               "%s: ", chan.game_username, err_reason)
                     # If there's an error parting, leave the entry to the next
                     # update.
                     continue
 
             if not allowed or entry["parted"] or expired:
-                self._listen_queue.remove(entry)
+                self.watch_queue.remove(entry)
                 continue
 
             if chan:
                 continue
 
             try:
-                self._new_channel(entry["username"])
+                self.new_channel(entry["username"])
             except Exception as e:
                 err_reason = type(e).__name__
                 if e.args:
@@ -312,24 +315,24 @@ class twitch_manager():
                 _log.error("Twitch: Unable to join channel for user %s: "
                            "%s", entry["username"], err_reason)
 
-    def _message_limited(self, is_normal):
-        if is_normal or self._sent_normal_message:
-            limit = _conf.twitch["message_limit"]
+    def message_limited(self, is_normal):
+        if is_normal or self.sent_normal_message:
+            limit = beem_conf.twitch["message_limit"]
         else:
-            limit = _conf.twitch["moderator_message_limit"]
-        return self._message_count >= limit
+            limit = beem_conf.twitch["moderator_message_limit"]
+        return self.message_count >= limit
 
-    def _join_channel(self, channel):
-        if self._message_limited(True):
+    def join_channel(self, channel):
+        if self.message_limited(True):
             raise Exception("reached message limit")
 
-        self._sent_normal_message = True
-        self._message_count += 1
-        if _conf.twitch.get("fake_connect"):
+        self.sent_normal_message = True
+        self.message_count += 1
+        if beem_conf.twitch.get("fake_connect"):
             return
 
-        self._server.join(channel.irc_channel)
-        _log.info("Twitch: Joining channel of user %s", channel.username)
+        self.server.join(channel.irc_channel)
+        _log.info("Twitch: Joining channel of user %s", channel.game_username)
 
     def send_channel(self, channel, message, is_action=False):
         """Send a message to the given channel. If `is_action` is True, the
@@ -340,61 +343,62 @@ class twitch_manager():
 
         """
 
-        if self._message_limited(not channel.is_moderator):
+        if self.message_limited(not channel.is_moderator):
             _log.info("Twitch: Didn't send chat message for channel %s due to "
                       "message limit", )
             return
 
-        if _conf.twitch.get("fake_connect"):
+        if beem_conf.twitch.get("fake_connect"):
             send_func = lambda channel, message: True
         elif is_action:
-            send_func = self._server.action
+            send_func = self.server.action
         else:
-            send_func = self._server.privmsg
+            send_func = self.server.privmsg
 
         try:
             send_func(channel.irc_channel, message)
         except irc.client.IRCError as e:
-            _log.error("Twitch: Unable to send chat message (listen user: %s, "
-                       "error: %s): %s", channel.username, e.args[0], message)
+            _log.error("Twitch: Unable to send chat message (watch user: %s, "
+                       "error: %s): %s", channel.game_username, e.args[0],
+                       message)
             return
 
         channel.time_last_message = time.time()
-        if not self._time_last_message:
-            self._time_last_message = channel.time_last_message
+        if not self.time_last_message:
+            self.time_last_message = channel.time_last_message
         if not channel.is_moderator:
-            self._sent_normal_message = True
-        self._message_count += 1
+            self.sent_normal_message = True
+        self.message_count += 1
 
     @asyncio.coroutine
-    def join_command(self, source, target_user):
+    def beem_join_command(self, source, target_user):
         """`!<bot-name> join` chat command"""
 
-        user_data = config.get_user_data("twitch", target_user)
+        user_data = get_user_data("twitch", target_user)
         if not user_data:
-            user_data = config.register_user("twitch", target_user)
+            user_data = register_user("twitch", target_user)
         elif self.get_channel(target_user):
             yield from source.send_chat(
                 "Already in chat of Twitch user {}".format(target_user))
             return
 
-        entry = self._get_queue_entry(target_user)
+        entry = self.get_queue_entry(target_user)
         if entry:
             yield from source.send_chat(
                 "Join request for Twitch user {} is already in the "
                 "queue".format(target_user))
             return
 
-        self._add_queue(target_user)
+        self.add_queue(target_user)
         yield from source.send_chat(
             "Join request added, {} will join Twitch chat of user "
-            "{} soon".format(_conf.twitch["nick"], target_user))
+            "{} soon".format(beem_conf.twitch["nick"], target_user))
 
     @asyncio.coroutine
-    def part_command(self, source, target_user):
+    def beem_part_command(self, source, target_user):
         """`!<bot-name> part` chat command"""
 
-        user_data = config.get_user_data("twitch", target_user)
+        user_data = get_user_data("twitch", target_user)
         if not user_data:
             yield from source.send_chat(
                 "Twitch user {} is not registered".format(target_user))
@@ -406,37 +410,37 @@ class twitch_manager():
                 "Not in chat of Twitch user {}".format(target_user))
             return
 
-        self._stop_listening(chan)
-        entry = self._get_queue_entry(target_user)
+        self.stop_watching(chan)
+        entry = self.get_queue_entry(target_user)
         if entry:
             entry["parted"] = True
         yield from source.send_chat(
             "Leaving Twitch chat of user {}".format(target_user))
 
 
-def _can_listen_user(user):
-    if _conf.get("single_user"):
-        return user == _conf.twitch["listen_user"]
+def can_watch_user(user):
+    if beem_conf.get("single_user"):
+        return user == beem_conf.twitch["watch_user"]
 
-    if not _conf.twitch.get("never_listen"):
+    if not beem_conf.twitch.get("never_watch"):
         return True
 
-    for u in _conf.twitch["never_listen"]:
+    for u in beem_conf.twitch["never_watch"]:
         if u.lower() == user.lower():
             return False
 
     return True
 
-def _able_to_listen():
-    return _conf.service_enabled("twitch") and dcss.manager.logged_in
+def able_to_watch():
+    return beem_conf.service_enabled("twitch") and dcss_manager.logged_in
 
 # The Twitch manager instance created when the module is loaded.
-manager = twitch_manager()
+twitch_manager = TwitchManager()
 
 # Twitch service data
-config.services["twitch"] = {
+services["twitch"] = {
     "name"                : "Twitch",
-    "manager"             : manager,
+    "manager"             : twitch_manager,
     "user_fields"         : ["nick"],
     "user_field_defaults" : [""],
     "commands"            : {
@@ -444,19 +448,19 @@ config.services["twitch"] = {
             "arg_pattern" : r"^[a-zA-Z0-9_-]+$",
             "arg_description" : "<nick>",
             "single_user" : True,
-            "function" : chat.nick_command
+            "function" : beem_nick_command
         },
         "join" : {
             "arg_pattern" : None,
             "arg_description" : None,
             "single_user" : False,
-            "function" : manager.join_command
+            "function" : twitch_manager.beem_join_command
         },
         "part" : {
             "arg_pattern" : None,
             "arg_description" : None,
             "single_user" : False,
-            "function" : manager.part_command
+            "function" : twitch_manager.beem_part_command
         },
     }
 }

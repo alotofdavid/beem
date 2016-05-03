@@ -3,48 +3,44 @@ import logging
 import re
 import time
 
-import config
-import dcss
+from .config import beem_conf, services
+from .dcss import dcss_manager, is_dcss_command
+from .userdb import get_user_data, register_user, set_user_field
 
-_conf = config.conf
 _log = logging.getLogger()
 
-class chat_listener():
+class ChatWatcher():
     def __init__(self):
         super().__init__()
-        self.spectators = set()
-        self._message_times = []
+        self.message_times = []
 
-    def stop_listening(self):
-        self.spectators = set()
-        self._message_times = []
-
-    def _is_beem_command(self, message):
+    def is_beem_command(self, message):
         pattern = r'!{} +[^ ]'.format(self.bot_name)
         return re.match(pattern, message, re.I)
 
-    def _is_allowed_user(self, user):
+    def is_allowed_user(self, user):
         """Ignore chat messages from ourself and disallowed users."""
         return user != self.bot_name
 
     @asyncio.coroutine
-    def _send_command_usage(self, command):
+    def send_command_usage(self, command):
         msg = "Usage: {} {}".format(self.bot_name, command)
-        command_entry = config.services[self.service]["commands"][command]
+        command_entry = services[self.service]["commands"][command]
         if command_entry["arg_description"]:
             msg += " [{}]".format(command_entry["arg_description"])
         yield from self.send_chat(msg)
 
     @asyncio.coroutine
-    def _read_beem_command(self, sender, message):
+    def read_beem_command(self, sender, message):
         message = re.sub(r'^!{} +'.format(self.bot_name), "", message)
         message = re.sub(r' +$', "", message)
         args = re.split(r' +', message)
         single_user_commands = ["register", "nick"]
-        admin = _conf.user_is_admin(self.service, sender)
+        admin = beem_conf.user_is_admin(self.service, sender)
         command = args.pop(0).lower()
         if command == "help":
-            help_text = _conf.get(self.service)["help_text"].replace("\n", " ")
+            help_text = beem_conf.get(self.service)["help_text"]
+            help_text = help_text.replace("\n", " ")
             help_text = help_text.replace("%n", self.bot_name)
             yield from self.send_chat(help_text)
             return
@@ -56,9 +52,9 @@ class chat_listener():
 
         found = False
         command_func = None
-        for name, entry in config.services[self.service]["commands"].items():
+        for name, entry in services[self.service]["commands"].items():
             if (name != command
-                or _conf.get("single_user") and not entry["single_user"]):
+                or beem_conf.get("single_user") and not entry["single_user"]):
                 continue
 
             # Don't allow non-admins to set twitch-user
@@ -70,7 +66,7 @@ class chat_listener():
             if (args and not entry["arg_pattern"]
                 or len(args) > 1
                 or args and not re.match(entry["arg_pattern"], args[0])):
-                yield from self._send_command_usage(command)
+                yield from self.send_command_usage(command)
                 return
 
             command_func = entry["function"]
@@ -91,14 +87,14 @@ class chat_listener():
             err_reason = type(e).__name__
             if len(e.args):
                 err_reason = e.args[0]
-            _log.error("%s: Unable to handle beem command (listen user: %s, "
+            _log.error("%s: Unable to handle beem command (watch user: %s, "
                        "request user: %s, target user: %s, error: %s): %s",
-                       config.services[self.service]["name"],
-                       self.username, sender, target_user, e.args[0], command)
+                       services[self.service]["name"], self.game_username,
+                       sender, target_user, e.args[0], command)
         else:
-            _log.info("%s: Did beem command (listen user: %s, request user: %s, "
+            _log.info("%s: Did beem command (watch user: %s, request user: %s, "
                       "target user: %s): %s",
-                      config.services[self.service]["name"], self.username,
+                      services[self.service]["name"], self.game_username,
                       sender, target_user, command)
 
     def get_nick(self, username):
@@ -107,26 +103,25 @@ class chat_listener():
 
         """
 
-        user_data = config.get_user_data(self.service, username)
+        user_data = get_user_data(self.service, username)
         if not user_data or not user_data["nick"]:
             return username
 
         return user_data["nick"]
 
-    def _is_bad_pattern(self, message):
-        if _conf.dcss.get("bad_patterns"):
-            for pat in _conf.dcss["bad_patterns"]:
+    def is_bad_pattern(self, message):
+        if beem_conf.dcss.get("bad_patterns"):
+            for pat in beem_conf.dcss["bad_patterns"]:
                 if re.search(pat, message):
                     _log.debug("DCSS: Bad pattern message: %s", message)
                     return True
 
-        bad_patterns = _conf.get(self.service).get("bad_patterns")
+        bad_patterns = beem_conf.get(self.service).get("bad_patterns")
         if bad_patterns:
             for pat in bad_patterns:
                 if re.search(pat, message):
                     _log.debug("%s: Bad %s pattern message: %s",
-                               config.services[self.service]["name"],
-                               message)
+                               services[self.service]["name"], message)
                     return True
 
         return False
@@ -135,44 +130,43 @@ class chat_listener():
     def read_chat(self, sender, message):
         """Read a chat message and process any beem or DCSS commands"""
 
-        if not self._is_allowed_user(sender):
+        if not self.is_allowed_user(sender):
             return
 
-        if self._is_bad_pattern(message):
+        if self.is_bad_pattern(message):
             return
 
-        beem_command = self._is_beem_command(message)
-        if not beem_command and not dcss.is_dcss_command(message):
+        beem_command = self.is_beem_command(message)
+        if not beem_command and not is_dcss_command(message):
             return
 
         current_time = time.time()
-        for timestamp in list(self._message_times):
-            if current_time - timestamp >= _conf.command_period:
-                self._message_times.remove(timestamp)
-        if len(self._message_times) >= _conf.command_limit:
-            _log.info("%s: Command ignored due to command limit (listen "
+        for timestamp in list(self.message_times):
+            if current_time - timestamp >= beem_conf.command_period:
+                self.message_times.remove(timestamp)
+        if len(self.message_times) >= beem_conf.command_limit:
+            _log.info("%s: Command ignored due to command limit (watch "
                       "user: %s, requester: %s): %s",
-                      config.services[self.service]["name"], self.username,
+                      services[self.service]["name"], self.game_username,
                       sender, message)
             return
 
-        self._message_times.append(current_time)
-
+        self.message_times.append(current_time)
         if beem_command:
-            yield from self._read_beem_command(sender, message)
-        # If we're listening in the chat of the bot itself, only
+            yield from self.read_beem_command(sender, message)
+        # If we're watching in the chat of the bot itself, only
         # respond to beem commands. This is something we do for
         # Twitch, allowing users to make the Twitch beem commands from
         # the bot's channel.
-        elif self.username != self.bot_name:
-            yield from dcss.manager.read_command(self, sender, message)
+        else:
+            yield from dcss_manager.read_command(self, sender, message)
 
 
 @asyncio.coroutine
-def nick_command(source, target_user, nick=None):
+def beem_nick_command(source, target_user, nick=None):
     """`!<bot-name> nick` chat command for both WebTiles and Twitch"""
 
-    user_data = config.get_user_data(source.service, target_user)
+    user_data = get_user_data(source.service, target_user)
     if not nick:
         if not user_data or not user_data["nick"]:
             yield from source.send_chat(
@@ -183,9 +177,9 @@ def nick_command(source, target_user, nick=None):
         return
 
     if not user_data:
-        user_data = config.register_user(source.service, target_user)
+        user_data = register_user(source.service, target_user)
 
-    config.set_user_field(source.service, target_user, "nick", nick)
+    set_user_field(source.service, target_user, "nick", nick)
     yield from source.send_chat(
         "Nick for user {} set to {}".format(target_user, nick))
 
@@ -195,6 +189,6 @@ def is_bot_command(message):
 
     """
 
-    return (dcss.is_dcss_command(message)
+    return (is_dcss_command(message)
             or message[0] == "!"
             or message[0] == "_")
