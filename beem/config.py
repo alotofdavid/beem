@@ -1,6 +1,7 @@
 """Load the beem configuration data."""
 
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import os.path
 import pytoml
