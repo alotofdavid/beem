@@ -246,11 +246,6 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             _log.info("WebTiles: Watching user %s", self.game_username)
             return True
 
-        # Messages here truly shouldn't happen until we've
-        # gotten watching_started (and self.watching is hence True)
-        if not self.watching:
-            return False
-
         if message["msg"] == "game_ended":
             _log.info("WebTiles: Game ended for user %s", self.game_username)
 
@@ -259,6 +254,11 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             _log.warning("Received go_lobby while watching user %s.",
                          self.game_username)
             return True
+
+        # Messages here truly shouldn't happen until we've
+        # gotten watching_started (and self.watching is hence True)
+        if not self.watching:
+            return False
 
         if self.logged_in and message["msg"] == "chat":
             user, chat_message = parse_chat(message["content"])
