@@ -25,7 +25,7 @@ _REQUEST_TIMEOUT = 10
 # game again.
 _REWATCH_WAIT = 5
 
-class LobbyConnection(webtiles.WebTilesLobbyConnection):
+class LobbyConnection(webtiles.WebTilesConnection):
     def __init__(self):
         super().__init__()
         self.task = None
@@ -514,7 +514,7 @@ class WebTilesManager():
         max_subscribers = wtconf["max_watched_subscribers"]
         rewatch_timeout = wtconf["game_rewatch_timeout"]
         for entry in list(self.watch_queue):
-            lobby = self.lobby.get_entry(entry["username"], entry["game_id"])
+            lobby = self.lobby.get_lobby_entry(entry["username"], entry["game_id"])
             idle_time = 0
             if lobby:
                 idle_time = (lobby["idle_time"] +
