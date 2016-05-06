@@ -49,6 +49,8 @@ class LobbyConnection(webtiles.WebTilesConnection):
             messages = None
             try:
                 messages = yield from self.read()
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 err_reason = type(e).__name__
                 if e.args:
@@ -140,6 +142,8 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             messages = None
             try:
                 messages = yield from self.read()
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 err_reason = type(e).__name__
                 if e.args:
