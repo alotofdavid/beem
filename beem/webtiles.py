@@ -235,54 +235,39 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
 
     @asyncio.coroutine
     def handle_message(self, message):
-        yield from super().handle_message(message)
-
         if message["msg"] == "login_success":
             self.time_since_request = None
 
-        if message["msg"] == "login_fail":
+        elif message["msg"] == "login_fail":
             _log.info("WebTiles: Login to %s failed, shutting down server.",
                       beem_conf.webtiles["server_url"])
             os.kill(os.getpid(), signal.SIGTERM)
 
-        if message["msg"] == "watching_started":
+        elif message["msg"] == "watching_started":
             self.time_since_request = None
             _log.info("WebTiles: Watching user %s", self.game_username)
-            return True
 
-        if message["msg"] == "game_ended":
+        elif message["msg"] == "game_ended":
             _log.info("WebTiles: Game ended for user %s", self.game_username)
 
-        if message["msg"] == "go_lobby":
+        elif message["msg"] == "go_lobby":
             # The game we were watching stopped for some reason.
             _log.warning("Received go_lobby while watching user %s.",
                          self.game_username)
-            return True
 
-        # Messages here truly shouldn't happen until we've
-        # gotten watching_started (and self.watching is hence True)
-        if not self.watching:
-            return False
-
-        if self.logged_in and message["msg"] == "chat":
+        elif self.logged_in and message["msg"] == "chat":
             user, chat_message = parse_chat(message["content"])
             yield from self.read_chat(user, chat_message)
-            return True
 
-        if message["msg"] == "dump" and beem_conf.service_enabled("twitch"):
+        elif message["msg"] == "dump" and beem_conf.service_enabled("twitch"):
             user_data = get_user_data("webtiles", self.game_username)
-            if not user_data or not user_data["twitch_username"]:
-                return True
+            if user_data and user_data["twitch_username"]:
+                chan = twitch_manager.get_channel(user_data["twitch_username"])
+                if chan:
+                    dump_msg = "Char dump: {}.txt".format(message["url"])
+                    yield from chan.send_chat(dump_msg)
 
-            chan = twitch_manager.get_channel(user_data["twitch_username"])
-            if not chan:
-                return True
-
-            dump_msg = "Char dump: {}.txt".format(message["url"])
-            yield from chan.send_chat(dump_msg)
-            return True
-
-        return False
+        yield from super().handle_message(message)
 
 
 class WebTilesManager():
