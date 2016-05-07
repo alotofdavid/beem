@@ -15,7 +15,7 @@ class ChatWatcher():
         self.message_times = []
 
     def is_beem_command(self, message):
-        pattern = r'!{} +[^ ]'.format(self.bot_name)
+        pattern = r'!{}( +[^ ]|$)'.format(self.bot_name)
         return re.match(pattern, message, re.I)
 
     def is_allowed_user(self, user):
@@ -32,12 +32,16 @@ class ChatWatcher():
 
     @asyncio.coroutine
     def read_beem_command(self, sender, message):
-        message = re.sub(r'^!{} +'.format(self.bot_name), "", message)
+        message = re.sub(r'^!{} *'.format(self.bot_name), "", message)
         message = re.sub(r' +$', "", message)
-        args = re.split(r' +', message)
+        if not message:
+            command = "help"
+            args = []
+        else:
+            args = re.split(r' +', message)
+            command = args.pop(0).lower()
         single_user_commands = ["register", "nick"]
         admin = beem_conf.user_is_admin(self.service, sender)
-        command = args.pop(0).lower()
         if command == "help":
             help_text = beem_conf.get(self.service)["help_text"]
             help_text = help_text.replace("\n", " ")
