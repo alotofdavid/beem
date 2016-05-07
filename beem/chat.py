@@ -54,7 +54,8 @@ class ChatWatcher():
         command_func = None
         for name, entry in services[self.service]["commands"].items():
             if (name != command
-                or beem_conf.get("single_user") and not entry["single_user"]):
+                or beem_conf.get("single_user") and not entry["single_user"]
+                or name == "status" and not admin):
                 continue
 
             # Don't allow non-admins to set twitch-user

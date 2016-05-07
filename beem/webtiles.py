@@ -584,6 +584,30 @@ class WebTilesManager():
 
         queue["time_end"] = time.time()
 
+    @asyncio.coroutine
+    def beem_status_command(self, source, *args):
+        """`!<bot-name> status` chat command"""
+
+        wtconf = beem_conf.webtiles
+        report = ""
+        if self.autowatch and self.autowatch.watching:
+            autowatch_user = self.autowatch.game_username
+            report = "Autowatching user {} with {} spec(s)".format(
+                self.autowatch.game_username, len(self.autowatch.spectators))
+
+        if self.subscriber_conns:
+            if report:
+                report += "; "
+            names = sorted(
+                [conn.game_username.lower() for conn in self.subscriber_conns])
+            report += "Watching {} subscribers: {}".format(len(self.subscriber_conns),
+                                                  ", ".join(names))
+
+        if not report:
+            raise Exception("Unable to find watched games for status report")
+
+        yield from source.send_chat(report)
+
 
 def parse_chat(message):
     # Remove html formatting
@@ -741,6 +765,7 @@ def beem_twitch_reminder_command(source, target_user, state=None):
     yield from source.send_chat("Twitch reminder {} for user {}".format(
         state_desc, target_user))
 
+
 # The WebTiles manager created when the module is loaded.
 webtiles_manager = WebTilesManager()
 
@@ -781,6 +806,12 @@ services["webtiles"] = {
             "arg_description" : "on|off",
             "single_user" : True,
             "function" : beem_twitch_reminder_command,
+        },
+        "status" : {
+            "arg_pattern" : None,
+            "arg_description" : None,
+            "single_user" : True,
+            "function" : webtiles_manager.beem_status_command,
         },
     }
 }
