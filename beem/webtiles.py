@@ -276,11 +276,13 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
 
         elif message["msg"] == "game_ended" and self.watching:
             _log.info("WebTiles: Game ended for user %s", self.game_username)
+            yield from webtiles_manager.stop_connection(self)
 
         elif message["msg"] == "go_lobby" and self.watching:
             # The game we were watching stopped for some reason.
             _log.warning("Received go_lobby while watching user %s.",
                          self.game_username)
+            yield from webtiles_manager.stop_connection(self)
 
         elif self.logged_in and message["msg"] == "chat":
             user, chat_message = parse_chat(message["content"])
