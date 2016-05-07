@@ -65,7 +65,19 @@ class LobbyConnection(webtiles.WebTilesConnection):
                 continue
 
             for message in messages:
-                yield from self.handle_message(message)
+                try:
+                    messages = yield from self.handle_message(message)
+                # Task canceled by stop_connection()
+                except asyncio.CancelledError:
+                    return
+                except Exception as e:
+                    err_reason = type(e).__name__
+                    if e.args:
+                        err_reason = e.args[0]
+                    _log.error("WebTiles: Unable to handle Lobby WebSocket "
+                               "message: %s", err_reason)
+                    yield from webtiles_manager.stop_connection(self)
+
             yield from asyncio.sleep(0.1)
 
 
@@ -143,7 +155,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             messages = None
             try:
                 messages = yield from self.read()
-            # Task canceled by stop()
+            # Task canceled by stop_connection()
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -158,7 +170,20 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
                 continue
 
             for message in messages:
-                yield from self.handle_message(message)
+                try:
+                    messages = yield from self.handle_message(message)
+                # Task canceled by stop_connection()
+                except asyncio.CancelledError:
+                    return
+                except Exception as e:
+                    err_reason = type(e).__name__
+                    if e.args:
+                        err_reason = e.args[0]
+                    _log.error("WebTiles: Unable to handle game WebSocket "
+                               "message (watch user: %s): %s",
+                               self.game_username, err_reason)
+                    yield from webtiles_manager.stop_connection(self)
+
             yield from asyncio.sleep(0.1)
 
     @asyncio.coroutine
