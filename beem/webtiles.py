@@ -255,8 +255,8 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             if e.args:
                 err_reason = e.args[0]
             _log.error("WebTiles: Unable to send chat message (watch user: "
-                       "%s, error: %s): %s", self.game_username, err_reason,
-                       message)
+                       "%s): message: %s, error: %s", self.game_username,
+                       message, err_reason)
             yield from webtiles_manager.stop_connection(self)
             return
 

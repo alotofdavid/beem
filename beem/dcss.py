@@ -320,9 +320,9 @@ class DCSSManager():
                 if e.args:
                     err_reason = e.args[0]
                 _log.error("DCSS: Unable to relay %s command (service: %s, "
-                           "chat: %s, error: %s): %s ", command_type,
-                           services[source.service]["name"],
-                           source.game_username, err_reason, message)
+                           "watch user: %s), message: %s, error: %s",
+                           command_type, services[source.service]["name"],
+                           source.game_username, message, err_reason)
                 raise
 
             # Sequell returns /me literally instead of using an IRC action, so
@@ -357,16 +357,17 @@ class DCSSManager():
             if e.args:
                 err_reason = e.args[0]
             _log.error("DCSS: Unable to send %s command (service: %s, "
-                       "chat: %s, requester %s, error: %s): %s ", command_type,
-                       services[source.service]["name"],
-                       source.game_username, requester, err_reason, message)
+                       "watch user: %s, request user: %s): command: %s, "
+                       "error: %s", command_type,
+                       services[source.service]["name"], source.game_username,
+                       requester, message, err_reason)
         else:
-            _log.info("DCSS: Sent %s command (service: %s, chat: %s, "
-                      "requester: %s): %s", command_type,
+            _log.info("DCSS: Sent %s command (service: %s, watch user: %s, "
+                      "request user: %s): %s", command_type,
                       services[source.service]["name"],
                       source.game_username, requester, message)
 
-            
+
 def is_dcss_command(message):
     return (is_sequell_command(message)
             or is_cheibriados_command(message)

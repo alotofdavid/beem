@@ -34,6 +34,7 @@ class ChatWatcher():
     def read_beem_command(self, sender, message):
         message = re.sub(r'^!{} *'.format(self.bot_name), "", message)
         message = re.sub(r' +$', "", message)
+        orig_message = message
         if not message:
             command = "help"
             args = []
@@ -93,14 +94,13 @@ class ChatWatcher():
             if len(e.args):
                 err_reason = e.args[0]
             _log.error("%s: Unable to handle beem command (watch user: %s, "
-                       "request user: %s, target user: %s, error: %s): %s",
+                       "request user: %s): command: %s, error: %s",
                        services[self.service]["name"], self.game_username,
-                       sender, target_user, e.args[0], command)
+                       sender, orig_command, e.args[0])
         else:
-            _log.info("%s: Did beem command (watch user: %s, request user: %s, "
-                      "target user: %s): %s",
-                      services[self.service]["name"], self.game_username,
-                      sender, target_user, command)
+            _log.info("%s: Did beem command (watch user: %s, request user: "
+                      "%s): %s", services[self.service]["name"],
+                      self.game_username, sender, orig_command)
 
     def get_nick(self, username):
         """Return the nick we have mapped for the given user. Return the

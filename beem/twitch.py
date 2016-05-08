@@ -246,7 +246,7 @@ class TwitchManager():
         try:
             self.server.part(channel.irc_channel)
         except irc.client.IRCError as e:
-            raise Exception("irc error: {}".format(e.args[0]))
+            raise Exception("IRC error: {}".format(e.args[0]))
         else:
             _log.info("Twitch: Leaving channel of user %s",
                       channel.game_username)
@@ -358,9 +358,9 @@ class TwitchManager():
         try:
             send_func(channel.irc_channel, message)
         except irc.client.IRCError as e:
-            _log.error("Twitch: Unable to send chat message (watch user: %s, "
-                       "error: %s): %s", channel.game_username, e.args[0],
-                       message)
+            _log.error("Twitch: Unable to send chat message (watch user: %s): "
+                       "message: %s, error: %s", channel.game_username,
+                       message, e.args[0])
             return
 
         channel.time_last_message = time.time()
