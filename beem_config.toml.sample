@@ -5,19 +5,6 @@
 # Sqlite3 user database file.
 user_db = "user_data.db3"
 
-# The variables command_limit and command_period control the rate of commands
-# (both bot and dcss) allowed in chat. If the condition is reached where the
-# number of commands sent in the last 'command_period' seconds reaches
-# 'command_limit', subsequent commands are ignored until that condition is no
-# longer true.
-command_limit = 8
-command_period = 20
-
-# If true, set the `watch_user` field in the webtiles table and/or the
-# the twitch table to use those services. The bot will then only serve
-# that user.
-single_user = true
-
 
 # =========================
 # === DCSS IRC settings ===
@@ -44,37 +31,34 @@ port = 6667
 # Generally you won't want to change any of the remaining settings in the
 # dcss table, unless you want to different irc bots from the official ones.
 
-# Nick used for Sequell queries.
-sequell_nick = "Sequell"
-
+[[dcss.bots]]
+nick = "Sequell"
 # These are regular expression patterns that beem accepts as prefixes to
-# Sequell commands in WebTiles chat. A chat message must match one of these at
+# bot commands in WebTiles chat. A chat message must match one of these at
 # the _beginning_ of the message to be forwarded to Sequell.
-sequell_patterns = ['\?\?[^?]', '\?/', '![^!]', '&[^&]', '\.[^\.]']
+patterns = ['r?\?\?[^?]', '\?/', '![^!]', '&[^&]', '\.[^\.]']
+use_relay = true
+has_monster = false
+has_git = false
 
-# Nick used for monster queries.
-gretell_nick = "Gretell"
+[[dcss.bots]]
+nick = "Gretell"
+patterns = ['@\?\??']
+use_relay = false
+has_monster = true
+has_git = false
 
-# Regular expressions that beem accepts as prefixes to monster commands
-# (e.g. used with Gretell). A chat message must match one of these at the
-# _beginning_ of the message to be forwarded to monster.
-gretell_patterns = ['@\?\??']
-
-# Nick used for Cheibriados queries.
-cheibriados_nick = "Cheibriados"
-
-# Regular expressions that beem accepts as prefixes to commands for the
-# Cheibriados bot, most useful for its %git command.
-cheibriados_patterns = ['%(git|0.[0-9]+|\?\?)']
+[[dcss.bots]]
+nick = "Cheibriados"
+patterns = ['%(git|[0-9].[0-9]+|\?\?)']
+use_relay = false
+has_monster = true
+has_git = true
 
 
 # =========================
 # === WebTiles settings ===
 [webtiles]
-
-# If this is not true, WebTiles support is disabled. Set it to false if you
-# only want to use the Twitch functionality (and enable Twitch below).
-enabled = true
 
 # The WebTiles login the bot will use. This shouldn't be your own WebTiles
 # account, since then the bot will ignore messages from you.
@@ -87,41 +71,41 @@ enabled = true
 # The websocket url of the server to watch at startup.
 server_url = "ws://localhost:8080/socket"
 
-# When single user mode is active, this field must be set to a valid user
-# name. The bot will only watch the games of this user.
-# watch_user = ""
+# To enable single user mode, set this field to a valid user name. The bot will
+# only watch the games of this user.
+# watch_username = ""
 
-# Max time in seconds a game connection can be idle (not watching a game)
-# before the bot will shut it down. The server will reuse such connections as
-# necessary. This should be longer than game_rewatch_timeout.
-max_connection_idle = 60
-
-# The WebTiles settings below are only relevant if not using single_user
-
-# A list of users to never watch.
-# never_watch = []
-
-# Maximum number of subscribers the bot will watch on a server when not in
-# single user mode. This number is independent of connection reserved for the
-# autowatch feature. If you're using single_user mode, this should be 1.
-max_watched_subscribers = 1
-
-# Max time in seconds a game can be idle before the bot will refuse to spectate
-# a game or leave a game it is watching. This shouldn't be too low or a game
-# will lose its watch slot too easily, nor too high so that a game that's idle
-# a long time hogs a connection that does nothing.
-max_game_idle = 600
-
-# Max time in seconds to wait after a game ends before removing it from the
-# watch queue. A user that rejoins before this period end won't lose their
-# designated slot.
-game_rewatch_timeout = 30
+# The variables command_limit and command_period control the rate of commands
+# (both bot and dcss) allowed in chat. If the condition is reached where the
+# number of commands sent in the last 'command_period' seconds reaches
+# 'command_limit', subsequent commands are ignored until that condition is no
+# longer true.
+command_limit = 8
+command_period = 20
 
 # Send when users issue !<bot-name> help
 help_text = """I'm a bot that sends commands to the DCSS IRC knowledge
 bots. For details, see
 https://github.com/gammafunk/beem/blob/master/docs/commands.md and to have me
 watch your games on this server, type: !%n subscribe"""
+
+# The WebTiles settings below are only relevant if not using watch_username
+
+# Maximum number of subscribers the bot will watch on a server when not in
+# single user mode. This number is independent of connection reserved for the
+# autowatch feature.
+max_watched_subscribers = 50
+
+# Max time in seconds a game can be idle before the bot will refuse to spectate
+# a game or leave a game it is watching. This shouldn't be too low or a game
+# will lose its watch slot too easily, nor too high so that a game that's idle
+# a long time hogs a connection that does nothing.
+max_game_idle = 3600
+
+# Max time in seconds to wait after a game ends before removing it from the
+# watch queue. A user that rejoins before this period end won't lose their
+# designated slot.
+game_rewatch_timeout = 30
 
 # Set this to true to have beem use a dedicated connection to watch the most
 # spectated non-idle game on the server. Note the connection used is
@@ -137,94 +121,6 @@ min_autowatch_spectators = 3
 # replaced with the bot name.
 greeting_text = "I am %n. For help, type: !%n help"
 
-# Text to say in WebTiles chat periodically telling spectators about the twitch
-# stream when the bot is also in the user's Twitch chat. The user must have a
-# twitch_username set (using !<bot-name> twitch-user) and have their twitch
-# reminder enabled (using !<bot-name> twitch-reminder) for the the reminder to
-# be active. In the string below, %u is replaced with the the WebTiles username
-# we're watching, %us is replaced with the possessive form of the same, and %t
-# is replaced with the Twitch username.
-twitch_reminder_text = """Hi everyone! Check out the stream at twitch.tv/%t.
-%u isn't checking WebTiles chat, but can respond on Twitch."""
-
-# Time in seconds between sending the Twitch reminder message.
-twitch_reminder_period = 900
-
-
-# =======================
-# === Twitch settings ===
-[twitch]
-
-# Set to true to enable Twitch support and have the bot connect to Twich chat
-# irc on startup.
-# enabled = true
-
-# Twitch IRC server and account data. It's advised that you use a different
-# account from your main twitch account, in case something goes wrong and use
-# of of the bot gets the account locked for 8 hours.
-# nick = ""
-hostname = "irc.twitch.tv"
-port = 6667
-# You'll need to obtain an oauth token for twitch irc from here:
-# http://www.twitchapps.com/tmi
-# password = ""
-
-# When single user mode is active, join this chat automatically and refuse
-# to join any others.
-# watch_user = ""
-
-# Twitch chat messages matching these regular expressions anywhere in the
-# message will not be passed on to any IRC bot. You can add regular expression
-# patterns to this array to prevent Twitch users from running certain
-# commands. The list below excludes common Nightbot and Moobot commands.
-bad_patterns = [
-# Moobot
-'^!(commercial|currentsong|game |moobot|nextsong|permit|raffle|shoutout|skipsong|songlist|songrequest|title |volume|vote|wrongsong)',
-# Nightbot
-'^!(commands|filters|poll |regulars|songs|winner|sr)'
-]
-
-# According to
-# http://help.twitch.tv/customer/portal/articles/1302780-twitch-irc moderators
-# can send no more than 20 normal messages in 30 seconds or 100 messages in 30
-# seconds if those messages have only been to channels where you're a
-# moderator. The bot tracks Twitch message usages and will prevent sending
-# joins/parts/chat messages if it runs into these limits. Your account can be
-# locked out for 8 hours if you violate their TOS, so be careful if you change
-# these limits.
-message_limit = 20
-moderator_message_limit = 100
-# Set to 29 seconds to be a bit conservative
-message_timeout = 29
-
-# The Twitch settings below are only relevant if not using single_user
-
-# Admins can run all bot commands and can run them on behalf of other users.
-# admins = []
-
-# Never join the chat of these users.
-# never_watch = []
-
-# Maximum number of Twitch channels the bot will watch at once. If you're
-# only using the bot for yourself, this should remain at 1.
-max_watched_subscribers = 1
-
-# Max chat idle time in seconds. If no chat messages happen for a period this
-# long, the bot may leave the channel if other users have unfulfilled join
-# requests.
-max_chat_idle = 1800
-
-# How long after receiving a join request will we continue to fulfill
-# it. Before the request expires, the bot will continue watching to the
-# requested channel, leaving only when it becomes idle and there are users with
-# Twitch requests
-request_expire_time = 28800
-
-# Send when users issue !<bot-name> help
-help_text = """I'm a bot that sends commands to the DCSS irc knowledge
-bots. For details, see:
-https://github.com/gammafunk/beem/blob/master/docs/commands.md"""
-
 
 # =============================
 # === Logging Configuration ===
@@ -239,6 +135,7 @@ https://github.com/gammafunk/beem/blob/master/docs/commands.md"""
 # backup_count = 5
 
 # Log message format
+datefmt = "%Y-%m-%d %H:%M:%S"
 format = "%(asctime)s %(levelname)s: %(message)s"
 
 # Set to 10 to get debugging message, but be warned this generates

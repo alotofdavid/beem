@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """beem: A multi-user chat bot that can relay queries to the IRC
-knowledge bots for DCSS from WebTiles or Twitch chat.
+knowledge bots for DCSS from WebTiles chat.
 
 """
 
@@ -14,35 +14,32 @@ import signal
 import sys
 import webtiles
 
-from .config import beem_conf
-from .dcss import dcss_manager
-from .twitch import twitch_manager
-from .userdb import get_user_data, load_user_db, register_user, set_user_field
-from .webtiles import webtiles_manager
+from .dcss import DCSSManager
+from .config import BeemConfig
+from .webtiles import WebTilesManager, db_fields
+from .userdb import UserDB
 
 ## Will be configured by beem_server after the config is loaded.
 _log = logging.getLogger()
 
+_DEFAULT_BEEM_CONFIG_FILE = "beem_config.toml"
+
 class BeemServer:
-    """The beem server. Load the beem_configuration instance and runs the
-    tasks for the DCSS manager and the managers of any services
-    enabled in the config.
+    """The beem server. Load the configuration and runs the tasks for the DCSS
+    and WebTiles managers.
 
     """
 
-    def __init__(self, config_file=None):
+    def __init__(self, config_file):
         self.dcss_task = None
-        self.twitch_task = None
         self.webtiles_task = None
         self.loop = asyncio.get_event_loop()
         self.shutdown_error = False
 
-        ## Load config file
-        if config_file:
-            beem_conf.path = config_file
+        self.conf = BeemConfig(config_file)
 
         try:
-            beem_conf.load()
+            self.conf.load()
         except Exception as e:
             err_reason = type(e).__name__
             if len(e.args):
@@ -50,9 +47,13 @@ class BeemServer:
             _log.critical(err_reason)
             sys.exit(1)
 
-        try:
-            self.load_users()
+        self.dcss_manager = DCSSManager(self.conf.dcss)        
+        self.load_webtiles()
 
+    def load_webtiles(self):
+        user_db = UserDB(self.conf.user_db, "webtiles_users", db_fields)
+        try:
+            user_db.load_db()
         except Exception as e:
             err_reason = type(e).__name__
             if len(e.args):
@@ -60,31 +61,17 @@ class BeemServer:
             _log.critical("Unable to load user DB: %s", err_reason)
             sys.exit(1)
 
-    def load_users(self):
+        wtconf = self.conf.webtiles
+        self.webtiles_manager = WebTilesManager(wtconf, user_db,
+                                                self.dcss_manager)
 
-        load_user_db()
-
-        if not beem_conf.get("single_user"):
-            return
-
-        # Make sure we're registered for all services in single user mode.
-        for service in services:
-            if not beem_conf.service_enabled(service):
-                continue
-
-            sconf = beem_conf.get(service)
-            _log.info(service)
-            if not get_user_data(service, sconf["listen_user"]):
-                register_user(service, sconf["listen_user"])
-
-        # Link the listen user's WebTiles and Twitch usernames.
-        if beem_conf.service_enabled("webtiles"):
-            set_user_field("webtiles", beem_conf.webtiles["listen_user"],
-                                  "subscription", 1)
-            if beem_conf.service_enabled("twitch"):
-                set_user_field("webtiles", beem_conf.webtiles["listen_user"],
-                               "twitch_username",
-                               beem_conf.twitch["listen_user"])
+        if wtconf.get("watch_username"):
+            user_data = user_db.get_user_data(wtconf["watch_username"])
+            if not user_data:
+                user_data = user_db.register_user(wtconf["watch_username"])
+            if not user_data["subscription"]:
+                user_db.set_user_field(wtconf["watch_username"],
+                                       "subscription", 1)
 
     def start(self):
         """Start the server, set up the event loop and signal handlers,
@@ -119,38 +106,26 @@ class BeemServer:
         _log.info("Stopping beem server.")
         self.shutdown_error = is_error
 
-        dcss_manager.disconnect()
+        self.dcss_manager.disconnect()
 
         if self.dcss_task and not self.dcss_task.done():
             self.dcss_task.cancel()
 
-        if beem_conf.service_enabled("twitch"):
-            twitch_manager.disconnect()
+        yield from self.webtiles_manager.disconnect()
 
-            if self.twitch_task and not self.twitch_task.done():
-                self.twitch_task.cancel()
-
-        if beem_conf.service_enabled("webtiles"):
-            yield from webtiles_manager.stop()
-
-            if self.webtiles_task and not self.webtiles_task.done():
-                self.webtiles_task.cancel()
+        if self.webtiles_task and not self.webtiles_task.done():
+            self.webtiles_task.cancel()
 
     @asyncio.coroutine
     def process(self):
         tasks = []
 
-        if beem_conf.service_enabled("webtiles"):
-            self.webtiles_task = asyncio.ensure_future(
-                webtiles_manager.start())
-            tasks.append(self.webtiles_task)
+        self.webtiles_task = asyncio.ensure_future(
+            self.webtiles_manager.start())
+        tasks.append(self.webtiles_task)
 
-        self.dcss_task = asyncio.ensure_future(dcss_manager.start())
+        self.dcss_task = asyncio.ensure_future(self.dcss_manager.start())
         tasks.append(self.dcss_task)
-
-        if beem_conf.service_enabled("twitch"):
-            self.twitch_task = asyncio.ensure_future(twitch_manager.start())
-            tasks.append(self.twitch_task)
 
         yield from asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
 
@@ -158,7 +133,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument("-c", dest="config_file", metavar="<toml-file>",
-                        default=None, help="The beem config file to use.")
+                        default=_DEFAULT_BEEM_CONFIG_FILE,
+                        help="The beem config file to use.")
     args = parser.parse_args()
 
     server = BeemServer(args.config_file)

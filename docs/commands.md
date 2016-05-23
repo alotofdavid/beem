@@ -1,9 +1,9 @@
 # beem command guide
 
 beem is a bot that sends queries to the
-[DCSS](http://crawl.develz.org/wordpress/) IRC knowledge bots from WebTiles or
-Twitch chat. If beem is listening to your chat, type commands for the bots
-Sequell, Gretell, and Cheibriados to have beem return the results.
+[DCSS](http://crawl.develz.org/wordpress/) IRC knowledge bots from WebTiles
+chat. If beem is listening to your chat, type commands for the bots Sequell,
+Gretell, and Cheibriados to have beem return the results.
 
 To have beem automatically watch your WebTiles games on a server, type:
 
@@ -138,11 +138,7 @@ beem control commands
 ---------------------
 
 Use these chat commands to control the bot when it's listening to your WebTiles
-games or your Twitch channel.
-
-### WebTiles
-
-These can be run from any WebTiles chat where beem is listening.
+games. These can be run from any WebTiles chat where beem is listening.
 
 - `!beem subscribe`
 
@@ -164,49 +160,3 @@ These can be run from any WebTiles chat where beem is listening.
   nick in the [##crawl](http://webchat.freenode.net/?channels=##crawl) channel
   on Freenode. If you only play on one account, it's not necessary to set your
   nick with beem.
-
-- `!beem twitch-reminder [on|off]`
-
-  To use this command, you must have an admin link your WebTiles username to
-  your Twitch username. Use `twitch-reminder` to enable/disable a WebTiles chat
-  reminder for when beem is watching both your WebTiles game and your Twitch
-  channel (i.e. you're playing on WebTiles during a Twitch stream). This
-  reminder is sent every 15 minutes, telling your WebTiles spectators that
-  you're streaming in Twitch and won't be responding to WebTiles chat. The url
-  of your Twitch stream is included in the message.
-
-### Twitch
-
-On Twitch, beem uses the account *r4nr*, and responds to commands using the
-`!r4nr` prefix. You can always find r4nr listening in its own chat at:
-
-https://www.twitch.tv/r4nr/
-
-From there you can run any of the commands below. Once r4nr has joined your
-Twitch chat, it will respond to DCSS bot commands as well as `!r4nr` commands.
-
-- `!r4nr nick [<name>]`
-
-  Set the nick beem will use for you when making queries to Sequell. This is
-  important to set if your Twitch username isn't the same as your WebTiles
-  account or Sequell nick.
-
-- `!r4nr join`
-
-  Have beem join your Twitch chat and respond to queries. Note that there are a
-  limited number of chat channels r4nr will listen to at once, and you may have
-  to wait for a channel become idle or ask r4nr to part.
-
-  Once you've issued `!r4nr join`, check the viewer list in your channel for
-  r4nr or simply type a test command to verify that it's listening.
-
-- `!r4nr part`
-
-  Run this command in your chat after you're done streaming and no longer need
-  r4nr.
-
-  If there are too many requests to watch Twitch channels, r4nr will leave your
-  chat as necessary if it's idle for 30 minutes or more. Running `!r4nr part`
-  after you're done streaming or otherwise no longer need the bot frees it from
-  having to track your channel, which is nice to do for your fellow Twitch
-  users.
