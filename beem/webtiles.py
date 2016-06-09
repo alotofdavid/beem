@@ -45,7 +45,6 @@ class LobbyConnection(webtiles.WebTilesConnection):
             messages = None
             try:
                 messages = yield from self.read()
-            # Task canceled by stop()
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -63,7 +62,6 @@ class LobbyConnection(webtiles.WebTilesConnection):
             for message in messages:
                 try:
                     messages = yield from self.handle_message(message)
-                # Task canceled by stop_connection()
                 except asyncio.CancelledError:
                     return
                 except Exception as e:
@@ -163,7 +161,6 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             messages = None
             try:
                 messages = yield from self.read()
-            # Task canceled by stop_connection()
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -181,7 +178,6 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             for message in messages:
                 try:
                     messages = yield from self.handle_message(message)
-                # Task canceled by stop_connection()
                 except asyncio.CancelledError:
                     return
                 except Exception as e:
@@ -303,17 +299,20 @@ class WebTilesManager():
 
     @asyncio.coroutine
     def stop_connection(self, conn):
-        """Shut down the game connection"""
+        """Shut down a WebTiles connection. If the connection is a game
+        connection, it has its game connection entry removed
+        (including autowatch).
+
+        Note: This cancels the connection's start() tasks, so any
+        coroutine that might call this through start() should use
+        asyncio.ensure_future() to schedule instead of yield,
+        otherwise that call to stop_connection() itself can be
+        cancelled.
+
+        """
 
         if conn.task and not conn.task.done():
-            try:
-                conn.task.cancel()
-            except Exception as e:
-                err_reason = type(e).__name__
-                if e.args:
-                    err_reason = e.args[0]
-                _log.error("WebTiles: Error canceling task (watch user: %s): "
-                           "%s", conn.watch_username, err_reason)
+            conn.task.cancel()
 
         if conn is self.autowatch:
             self.autowatch = None
@@ -321,6 +320,7 @@ class WebTilesManager():
             if conn.watching:
                 self.set_watch_end(conn)
             self.connections.remove(conn)
+
         try:
             yield from conn.disconnect()
         except Exception as e:
