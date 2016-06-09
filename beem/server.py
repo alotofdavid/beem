@@ -47,7 +47,7 @@ class BeemServer:
             _log.critical(err_reason)
             sys.exit(1)
 
-        self.dcss_manager = DCSSManager(self.conf.dcss)        
+        self.dcss_manager = DCSSManager(self.conf.dcss)
         self.load_webtiles()
 
     def load_webtiles(self):
@@ -93,10 +93,14 @@ class BeemServer:
         print("Event loop running forever, press Ctrl+C to interrupt.")
         print("pid %s: send SIGINT or SIGTERM to exit." % os.getpid())
 
-        self.loop.run_until_complete(self.process())
+        try:
+            self.loop.run_until_complete(self.process())
+        except asyncio.CancelledError:
+            pass
+
+        self.loop.close()
         sys.exit(self.shutdown_error)
 
-    @asyncio.coroutine
     def stop(self, is_error=False):
         """Stop the server by canceling any ongoing manager tasks, which
         will cause this beem server process to exit.
@@ -106,12 +110,8 @@ class BeemServer:
         _log.info("Stopping beem server.")
         self.shutdown_error = is_error
 
-        self.dcss_manager.disconnect()
-
         if self.dcss_task and not self.dcss_task.done():
             self.dcss_task.cancel()
-
-        yield from self.webtiles_manager.disconnect()
 
         if self.webtiles_task and not self.webtiles_task.done():
             self.webtiles_task.cancel()
@@ -128,6 +128,10 @@ class BeemServer:
         tasks.append(self.dcss_task)
 
         yield from asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+
+        self.dcss_manager.disconnect()
+        yield from self.webtiles_manager.disconnect()
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
