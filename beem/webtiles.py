@@ -472,7 +472,7 @@ class WebTilesManager():
             no_free_slot = (not conn in self.connections
                             and len(self.connections) >= max_subscribers)
             # Find an autowatch candidate
-            if (self.conf["autowatch_enabled"]
+            if (self.conf.get("autowatch_enabled")
                 and self.dcss_manager.logged_in
                 and entry["spectator_count"] >= min_spectators
                 and (not subscribed or no_free_slot)
