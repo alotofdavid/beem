@@ -84,7 +84,7 @@ class BeemServer:
         def do_exit(signame):
             _log.error("Got signal %s: exit", signame)
             is_error = True if signame == "SIGTERM" else False
-            asyncio.ensure_future(self.stop(is_error))
+            self.stop(is_error)
 
         for signame in ("SIGINT", "SIGTERM"):
             self.loop.add_signal_handler(getattr(signal, signame),

@@ -72,7 +72,8 @@ class LobbyConnection(webtiles.WebTilesConnection):
                         err_reason = e.args[0]
                     _log.error("WebTiles: Unable to handle Lobby WebSocket "
                                "message: %s", err_reason)
-                    yield from self.manager.stop_connection(self)
+                    asyncio.ensure_future(self.manager.stop_connection(self))
+                    return
 
             yield from asyncio.sleep(0.1)
 
@@ -141,12 +142,12 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
                     err_reason = e.args[0]
                 _log.error("WebTiles: Unable to connect to %s: %s",
                            self.manager.conf["server_url"], err_reason)
-                yield from self.manager.stop_connection(self)
+                asyncio.ensure_future(self.manager.stop_connection(self))
                 return
 
         while True:
             if self.request_timeout():
-                yield from self.manager.stop_connection(self)
+                asyncio.ensure_future(self.manager.stop_connection(self))
                 return
 
             if (self.logged_in
@@ -171,7 +172,8 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
                     err_reason = e.args[0]
                 _log.error("WebTiles: Unable to read game WebSocket (watch "
                            "user: %s): %s", self.watch_username, err_reason)
-                yield from self.manager.stop_connection(self)
+                asyncio.ensure_future(self.manager.stop_connection(self))
+                return
 
             if not messages:
                 continue
@@ -189,7 +191,8 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
                     _log.error("WebTiles: Unable to handle game WebSocket "
                                "message (watch user: %s): %s",
                                self.watch_username, err_reason)
-                    yield from self.manager.stop_connection(self)
+                    asyncio.ensure_future(self.manager.stop_connection(self))
+                    return
 
             yield from asyncio.sleep(0.1)
 
@@ -227,7 +230,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             _log.error("WebTiles: Unable to send chat message (watch user: "
                        "%s): message: %s, error: %s", self.watch_username,
                        message, err_reason)
-            yield from self.manager.stop_connection(self)
+            asyncio.ensure_future(self.manager.stop_connection(self))
             return
 
     @asyncio.coroutine
@@ -246,13 +249,15 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
 
         elif message["msg"] == "game_ended" and self.watching:
             _log.info("WebTiles: Game ended for user %s", self.watch_username)
-            yield from self.manager.stop_connection(self)
+            asyncio.ensure_future(self.manager.stop_connection(self))
+            return
 
         elif message["msg"] == "go_lobby" and self.watching:
             # The game we were watching stopped for some reason.
             _log.warning("Received go_lobby while watching user %s.",
                          self.watch_username)
-            yield from self.manager.stop_connection(self)
+            asyncio.ensure_future(self.manager.stop_connection(self))
+            return
 
         elif self.logged_in and message["msg"] == "chat":
             user, chat_message = parse_chat(message["content"])
@@ -307,7 +312,8 @@ class WebTilesManager():
                 err_reason = type(e).__name__
                 if e.args:
                     err_reason = e.args[0]
-                _log.error("WebTiles: Error canceling task: %s", err_reason)
+                _log.error("WebTiles: Error canceling task (watch user: %s): "
+                           "%s", conn.watch_username, err_reason)
 
         if conn is self.autowatch:
             self.autowatch = None
@@ -315,7 +321,14 @@ class WebTilesManager():
             if conn.watching:
                 self.set_watch_end(conn)
             self.connections.remove(conn)
-        yield from conn.disconnect()
+        try:
+            yield from conn.disconnect()
+        except Exception as e:
+            err_reason = type(e).__name__
+            if e.args:
+                err_reason = e.args[0]
+            _log.error("WebTiles: Error attempting disconnect (watch user: "
+                       "%s): %s", conn.watch_username, err_reason)
 
     @asyncio.coroutine
     def try_new_connection(self, watch_username, game_id):
