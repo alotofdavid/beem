@@ -82,8 +82,12 @@ class BeemServer:
         _log.info("Starting beem server.")
 
         def do_exit(signame):
-            _log.error("Got signal %s: exit", signame)
             is_error = True if signame == "SIGTERM" else False
+            msg = "Shutting down server due to signal: {}".format(signame)
+            if is_error:
+                _log.error(msg)
+            else:
+                _log.info(msg)
             self.stop(is_error)
 
         for signame in ("SIGINT", "SIGTERM"):
