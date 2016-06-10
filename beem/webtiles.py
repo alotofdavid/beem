@@ -61,7 +61,7 @@ class LobbyConnection(webtiles.WebTilesConnection):
 
             for message in messages:
                 try:
-                    messages = yield from self.handle_message(message)
+                    yield from self.handle_message(message)
                 except asyncio.CancelledError:
                     return
                 except Exception as e:
@@ -177,7 +177,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
 
             for message in messages:
                 try:
-                    messages = yield from self.handle_message(message)
+                    yield from self.handle_message(message)
                 except asyncio.CancelledError:
                     return
                 except Exception as e:
