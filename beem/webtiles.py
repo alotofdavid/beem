@@ -29,7 +29,9 @@ class LobbyConnection(webtiles.WebTilesConnection):
     @asyncio.coroutine
     def start(self):
         try:
-            yield from self.connect(self.manager.conf["server_url"])
+            yield from self.connect(
+                websocket_url=self.manager.conf["server_url"],
+                protocol_version=self.manager.conf["protocol_version"])
         except Exception as e:
             err_reason = type(e).__name__
             if e.args:
@@ -133,7 +135,8 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             try:
                 yield from self.connect(self.manager.conf["server_url"],
                                         self.manager.conf["username"],
-                                        self.manager.conf["password"])
+                                        self.manager.conf["password"],
+                                        self.manager.conf["protocol_version"])
             except Exception as e:
                 err_reason = type(e).__name__
                 if e.args:
@@ -248,15 +251,17 @@ class GameConnection(webtiles.WebTilesGameConnection, ChatWatcher):
             asyncio.ensure_future(self.manager.stop_connection(self))
             return
 
-        elif message["msg"] == "go_lobby" and self.watching:
+        elif ((message["msg"] == "go_lobby"
+               or message["msg"] == "go" and message["path"] == "/")
+              and self.watching):
             # The game we were watching stopped for some reason.
-            _log.warning("Received go_lobby while watching user %s.",
-                         self.watch_username)
+            _log.warning("WebTiles: Told to go to lobby while watching user "
+                         "%s.", self.watch_username)
             asyncio.ensure_future(self.manager.stop_connection(self))
             return
 
         elif self.logged_in and message["msg"] == "chat":
-            user, chat_message = parse_chat(message["content"])
+            user, chat_message = self.parse_chat_message(message)
             yield from self.read_chat(user, chat_message)
 
         yield from super().handle_message(message)
@@ -366,7 +371,7 @@ class WebTilesManager():
                 self.lobby.task = asyncio.ensure_future(self.lobby.start())
 
             autowatch_game = None
-            if self.lobby.lobby_complete:
+            if self.conf["protocol_version"] >= 2 or self.lobby.lobby_complete:
                 autowatch_game = self.process_lobby()
             if autowatch_game:
                 yield from self.do_autowatch_game(autowatch_game)
@@ -616,29 +621,6 @@ class WebTilesManager():
         user_data = self.user_db.get_user_data(username)
         return user_data and user_data["subscription"] > 0
 
-
-
-def parse_chat(message):
-    # Remove html formatting
-    msg_pattern = r'<span[^>]+>([^<]+)</span>: <span[^>]+>([^<]+)</span>'
-    match = re.match(msg_pattern, message)
-    if not match:
-        _log.error("WebTiles: Unable to parse chat message: %s", message)
-        return
-
-    user = match.group(1)
-    command = match.group(2)
-    # Unescape these HTML entities
-    command = command.replace("&amp;", "&")
-    command = command.replace("&AMP;", "&")
-    command = command.replace("&percnt;", "%")
-    command = command.replace("&gt;", ">")
-    command = command.replace("&lt;", "<")
-    command = command.replace("&quot;", '"')
-    command = command.replace("&apos;", "'")
-    command = command.replace("&#39;", "'")
-    command = command.replace("&nbsp;", " ")
-    return (user, command)
 
 @asyncio.coroutine
 def bot_subscribe_command(source, username):

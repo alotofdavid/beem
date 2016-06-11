@@ -120,8 +120,8 @@ class BeemConfig(Config):
 
         webtiles = self.webtiles
         self.require_table_fields("webtiles", webtiles,
-                                  ["server_url", "username", "password",
-                                   "help_text"])
+                                  ["server_url", "protocol_version",
+                                   "username", "password", "help_text"])
 
 
         if self.get("watch_username"):

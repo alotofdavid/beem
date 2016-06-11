@@ -71,6 +71,9 @@ has_git = true
 # The websocket url of the server to watch at startup.
 server_url = "ws://localhost:8080/socket"
 
+# Set this to 2 if the server is using the webtiles-changes branch.
+protocol_version = 1
+
 # To enable single user mode, set this field to a valid user name. The bot will
 # only watch the games of this user.
 # watch_username = ""
