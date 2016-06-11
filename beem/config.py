@@ -115,9 +115,6 @@ class BeemConfig(Config):
         super().__init__(path)
 
     def check_webtiles(self):
-        if not self.get("webtiles") or not self.webtiles.get("enabled"):
-            return
-
         webtiles = self.webtiles
         self.require_table_fields("webtiles", webtiles,
                                   ["server_url", "protocol_version",
