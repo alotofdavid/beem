@@ -112,6 +112,12 @@ class DCSSManager():
         self.reactor.add_global_handler("all_events", self.dispatcher, -10)
         self.server = self.reactor.server()
 
+    def log_exception(self, e, error_msg):
+        error_reason = type(e).__name__
+        if e.args:
+            error_reason = e.args[0]
+        _log.error("DCSS: %s: %s", error_msg, error_reason)
+
     @asyncio.coroutine
     def connect(self):
         """Connect to IRC."""
@@ -139,8 +145,7 @@ class DCSSManager():
                 yield from self.send("NickServ", "identify {}".format(
                     self.conf["nickserv_password"]))
             except Exception as e:
-                _log.error("DCSS: Unable to send auth to NickServ: %s",
-                           e.args[0])
+                self.log_exception(e, "Unable to send auth to NickServ")
                 yield from self.disconnect()
                 raise
         else:
@@ -157,10 +162,7 @@ class DCSSManager():
         try:
             self.server.disconnect()
         except Exception as e:
-            err_reason = type(e).__name__
-            if e.args:
-                err_reason = e.args[0]
-            _log.error("DCSS: Error when disconnecting: %s", err_reason)
+            self.log_exception(e, "Error when disconnecting IRC")
 
     def is_connected(self):
         # Make sure connect() is run at least once even under fake_connect
@@ -176,17 +178,16 @@ class DCSSManager():
             while not self.is_connected():
                 try:
                     yield from self.connect()
-                except:
+                except asyncio.CancelledError:
+                    return
+                except Exception as e:
+                    self.log_exception(e, "Unable to connect IRC")
                     yield from asyncio.sleep(_RECONNECT_TIMEOUT)
-
 
             try:
                 self.reactor.process_once()
             except Exception as e:
-                err_reason = type(e).__name__
-                if e.args:
-                    err_reason = e.args[0]
-                _log.error("DCSS: Error reading IRC connection: %s", err_reason)
+                self.log_exception(e, "Error reading IRC connection")
                 yield from self.disconnect()
 
             for m in list(self.messages):
@@ -317,13 +318,11 @@ class DCSSManager():
                     return
 
                 except Exception as e:
-                    err_reason = type(e).__name__
-                    if e.args:
-                        err_reason = e.args[0]
-                    _log.error("DCSS: Unable to relay %s message (service: %s, "
-                               "watch user: %s), message: %s, error: %s",
-                               nick, source.manager.service,
-                               source.watch_username, message, err_reason)
+                    self.log_exception(e, "Unable to relay {} message "
+                                       "(service: {}, watch user: {}), "
+                                       "message: {}; error".format(
+                                           nick,source.manager.service,
+                                           source.watch_username, message))
                     raise
 
             # Sequell returns /me literally instead of using an IRC action, so
@@ -348,13 +347,11 @@ class DCSSManager():
         try:
             yield from dest_bot.send_message(source, username, message)
         except Exception as e:
-            err_reason = type(e).__name__
-            if e.args:
-                err_reason = e.args[0]
-            _log.error("DCSS: Unable to send %s command (watch user: %s, "
-                       "request user: %s): command: %s, error: %s",
-                       dest_bot.conf["nick"], source.watch_username, username,
-                       message, err_reason)
+            self.log_exception(e, "Unable to send {} command (watch user: {}, "
+                               "request user: {}): command: %s, error".format(
+                                   dest_bot.conf["nick"],
+                                   source.watch_username, username, message))
+
         else:
             _log.info("DCSS: Sent %s command (watch user: %s, request user: "
                       "%s): %s", dest_bot.conf["nick"], source.watch_username,
