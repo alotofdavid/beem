@@ -66,8 +66,7 @@ class ConnectionHandler():
                 yield from self.connect()
 
             except Exception as e:
-                self.log_exception(e, "unable to connect to {}".format(
-                    self.manager.conf["server_url"]))
+                self.log_exception(e, "unable to connect")
                 yield from asyncio.sleep(_RETRY_CONNECTION_WAIT)
                 asyncio.ensure_future(self.manager.stop_connection(self))
                 return
@@ -135,7 +134,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         self.need_greeting = False
         self.watch_username = watch_username
         self.game_id = game_id
-        if manager.conf["greeting_text"]:
+        if manager.conf.get("greeting_text"):
             user_data = manager.user_db.get_user_data(watch_username)
             if user_data and user_data["subscription"] > 0:
                 self.need_greeting = False
@@ -147,12 +146,12 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         # too long.
         self.last_reminder_time = None
 
-    def log_exception(self, e, error_msg, *args):
+    def log_exception(self, e, error_msg):
         error_reason = type(e).__name__
         if e.args:
             error_reason = e.args[0]
         _log.error("WebTiles: In game for user %s, %s: %s", self.watch_username,
-                   error_msg, error_reason, *args)
+                   error_msg, error_reason)
 
     def connect(self):
         yield from super().connect(self.manager.conf["server_url"],
