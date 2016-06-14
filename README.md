@@ -40,5 +40,5 @@ pip3. For example:
 Copy the [beem_config.toml.sample](beem_config.toml.sample) file to
 `beem_config.toml` and edit the necessary fields based on how you'd like to run
 the bot. The config file format is [toml](https://github.com/toml-lang/toml),
-and the various field you can change are in this file are documented in
+and the various fields you can change are in this file are documented in
 comments.

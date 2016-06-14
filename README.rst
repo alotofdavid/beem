@@ -47,5 +47,5 @@ Configuration
 Copy the `beem\_config.toml.sample <beem_config.toml.sample>`__ file to
 ``beem_config.toml`` and edit the necessary fields based on how you'd
 like to run the bot. The config file format is
-`toml <https://github.com/toml-lang/toml>`__, and the various field you
+`toml <https://github.com/toml-lang/toml>`__, and the various fields you
 can change are in this file are documented in comments.
