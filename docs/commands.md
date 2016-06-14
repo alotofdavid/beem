@@ -41,7 +41,7 @@ where you can read for more information.
   [##crawl](http://webchat.freenode.net/?channels=##crawl) channel on Freenode
   to do that.
 
-##### Monster lookup:
+##### Monster lookup
 
   Look up monster statistics with the prefix `@??`:
 
@@ -98,7 +98,7 @@ where you can read for more information.
     &dump
     &dump . cbro trunk
 
-##### Other Sequell commands:
+##### Other Sequell commands
 
   Details on all games played and won for a player or nick. These accept any
   arguments for `!lg`:
