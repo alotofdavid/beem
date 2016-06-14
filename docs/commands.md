@@ -18,14 +18,13 @@ To prevent beem from watching your games, type:
 
     !beem unsubscribe
 
-Knowledge bot command examples
-------------------------------
+### Knowledge bot command examples
 
 A quick guide to the types of knowledge bot commands that beem recognizes. This
 is not an exhaustive list, just a series of quick examples with pointers to
 where you can read for more information.
 
-### LearnDB lookup
+##### LearnDB lookup
 
   Look up topics in a user-contributed database of knowledge:
 
@@ -42,7 +41,7 @@ where you can read for more information.
   [##crawl](http://webchat.freenode.net/?channels=##crawl) channel on Freenode
   to do that.
 
-### Monster lookup:
+##### Monster lookup:
 
   Look up monster statistics with the prefix `@??`:
 
@@ -56,7 +55,7 @@ where you can read for more information.
     %??the royal jelly
     %0.15?cigotuvi's monster
 
-### List games and milestones
+##### List games and milestones
 
   Use `!lg` to see details from completed games, and `!lm` to see milestones
   from completed or in-progress games:
@@ -74,7 +73,7 @@ where you can read for more information.
   See `??listgame_examples` for more examples and `??lg` and `??lm` for further
   details.
 
-### FooTV
+##### FooTV
 
   Watch ascii recordings of games played on servers that support them (all but
   cpo, cwz, and lld):
@@ -87,7 +86,7 @@ where you can read for more information.
 
   See `??footv` and `??ttyrec` for further details.
 
-### Morgues and in-progress game dumps
+##### Morgues and in-progress game dumps
 
   Add `-log` to any `!lg` query, or use `!log`:
 
@@ -99,7 +98,7 @@ where you can read for more information.
     &dump
     &dump . cbro trunk
 
-### Other Sequell commands:
+##### Other Sequell commands:
 
   Details on all games played and won for a player or nick. These accept any
   arguments for `!lg`:
@@ -125,7 +124,7 @@ where you can read for more information.
   see documentation for commands with help documentation available.
 
 
-### Git commit lookup
+##### Git commit lookup
 
   Look up commits in the official crawl github repository by commit or branch:
 
@@ -140,8 +139,7 @@ where you can read for more information.
 
         !gitgrep 2 moon troll
 
-beem control commands
----------------------
+### beem control commands
 
 Use these commands from Webtiles chat to control beem. These commands can be
 run from the WebTiles chat of any game where beem is listening, including your
