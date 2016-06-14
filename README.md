@@ -1,26 +1,19 @@
-beem
-====
+# beem
 
 beem is a multi-user chat bot that can relay queries to the IRC knowledge bots
-for [DCSS](http://crawl.develz.org/wordpress/) from WebTiles chat. This bot is
-being available on [CBRO](http://crawl.berotato.org:8080/) and
-[CAO](http://crawl.akrasiac.org:8080/), [CXC](http://crawl.xtahua.com:8080/),
-and [CUE](http://www.underhound.eu:8080/#lobby), where it will automatically
-join your chat if your game has the most spectators and isn't idle for too
-long. You can subscribe to have beem watch your games automatically. See the
-[command guide](docs/beem_commands.md) for details on using beem from chat.
+for [DCSS](http://crawl.develz.org/wordpress/) from WebTiles chat. See the
+[command guide](docs/beem_commands.md) for details on using beem from WebTiles
+chat. The remaining instructions on this page are only relevant if you want to
+run a custom instance of this bot.
 
-The remaining instructions on this page are only relevant if you want to run a
-custom instance of this bot.
+### Details
 
-Details
--------
-
-beem manages a Freenode IRC connection that sends queries to the bots on
-Freenode and receive the results. It supports monitoring the chat of any number
-of WebTiles games based on user subscription made in chat, and can dedicate a
-connection to watch the most-spectated game on the server. The server is
-single-threaded and uses
+beem supports monitoring the chat of any number of concurrent WebTiles games
+based on user subscriptions made in chat. It can also dedicate a connection to
+watching the most-spectated game on the server automatically. It manages a
+single Freenode IRC connection that relays queries to the knowledge bots,
+receives the results, and forwards them to the game chat that originated the
+query. The beem server is single-threaded and uses
 [asyncio](https://docs.python.org/3.4/library/asyncio.html) to manage an an
 event loop with concurrent tasks.
 
@@ -35,9 +28,9 @@ The following are required:
 * websockets module (3.0 tested)
 * [webtiles](https://github.com/gammafunk/webtiles) module
 
-All but *webtiles* are available in PyPI. You can install *webtiles* from the
-github repository and then likewise the *beem* package directly from the
-repositories with pip3. For example, for a local install:
+All packages above except *webtiles* are available in PyPI. You can install the
+*webtiles* and *beem* packages directly from their respective repositories with
+pip3. For example:
 
     pip3 install --user git+https://github.com/gammafunk/webtiles.git
     pip3 install --user git+https://github.com/gammafunk/beem.git
