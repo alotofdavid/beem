@@ -2,7 +2,7 @@
 
 beem is a multi-user chat bot that can relay queries to the IRC knowledge bots
 for [DCSS](http://crawl.develz.org/wordpress/) from WebTiles chat. See the
-[command guide](docs/beem_commands.md) for details on using beem from WebTiles
+[command guide](docs/commands.md) for details on using beem from WebTiles
 chat. The remaining instructions on this page are only relevant if you want to
 run a custom instance of this bot.
 
