@@ -1,11 +1,16 @@
 # beem command guide
 
-beem is a bot that sends queries to the
-[DCSS](http://crawl.develz.org/wordpress/) IRC knowledge bots from WebTiles
-chat. If beem is listening to your chat, type commands for the bots Sequell,
-Gretell, and Cheibriados to have beem return the results.
+beem is a bot that listens to [DCSS](http://crawl.develz.org/wordpress/)
+WebTiles game chat and sends queries to the IRC knowledge bots. If you see beem
+spectating to a game's chat, you can type commands for any of the knowledge
+bots Sequell, Gretell, or Cheibriados to have beem return the results.
 
-To have beem automatically watch your WebTiles games on a server, type:
+This bot is available on the official servers CAO, CBRO, CJR, CPO, CUE, and
+CXC. If you need to find beem on your server, look for the user with the most
+spectators, since the bot will automatically watch that game.
+
+When you see beem in chat, type the following command to have beem
+automatically watch your games on the current server:
 
     !beem subscribe
 
@@ -16,7 +21,9 @@ To prevent beem from watching your games, type:
 Knowledge bot command examples
 ------------------------------
 
-A quick guide to the types of knowledge commands beem recognizes.
+A quick guide to the types of knowledge bot commands that beem recognizes. This
+is not an exhaustive list, just a series of quick examples with pointers to
+where you can read for more information.
 
 ### LearnDB lookup
 
@@ -133,24 +140,25 @@ A quick guide to the types of knowledge commands beem recognizes.
 
         !gitgrep 2 moon troll
 
-
 beem control commands
 ---------------------
 
-Use these chat commands to control the bot when it's listening to your WebTiles
-games. These can be run from any WebTiles chat where beem is listening.
+Use these commands from Webtiles chat to control beem. These commands can be
+run from the WebTiles chat of any game where beem is listening, including your
+own games.
 
 - `!beem subscribe`
 
-  Have beem watch your games whenever it sees them. Note that beem has a limit
-  to the number of games it can watch at once, so if it doesn't join your game
-  right away, just wait a bit until someone else stops playing or goes idle.
+  Have beem watch your games automatically whenever it sees them. You only need
+  to run this command once, since beem will remember your subscription. You can
+  also run this command to resubscribe after having used the `!beem
+  unsubscribe` command, and there's no limit to resubscriptions.
 
 - `!beem unsubscribe`
 
-  Prevent beem from watching your games. beem will leave your chat after you
-  run this command. You can run `beem subscribe` from any other chat where you
-  see beem to have it resume watching your games.
+  Prevent beem from watching your games. beem will leave your game's chat after
+  you run this command. You can run `!beem subscribe` from any other game's
+  chat where beem is listening to resubscribe.
 
 - `!beem nick [<name>]`
 
@@ -158,5 +166,6 @@ games. These can be run from any WebTiles chat where beem is listening.
   WebTiles, this is only useful if you play on multiple accounts and have set
   your nick within Sequell using the `!nick` command. You can set your Sequell
   nick in the [##crawl](http://webchat.freenode.net/?channels=##crawl) channel
-  on Freenode. If you only play on one account, it's not necessary to set your
-  nick with beem.
+  on Freenode. If you only play on one WebTiles account, it's not necessary to
+  set your nick with beem, since it will use your current account name for
+  queries automatically.
