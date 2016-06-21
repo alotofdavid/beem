@@ -236,6 +236,8 @@ class DCSSManager():
 
         elif event.type == "900":
             self.on_900_message(event)
+        elif event.type == "904":
+            self.on_904_message(event)
 
     def on_900_message(self, event):
         _log.info("DCSS: SASL authentication complete")
