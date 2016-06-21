@@ -16,7 +16,7 @@ port = 6667
 
 # Set to true to enable SSL support, and change the port field to an
 # ssl-enabled port.
-use_ssl = true
+# use_ssl = true
 
 # IRC nick. If SASL is used, this can be different from the username below.
 # nick = ""
