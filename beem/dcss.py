@@ -128,10 +128,13 @@ class DCSSManager():
         _log.error("DCSS: %s: %s", error_msg, error_reason)
 
     def ready(self):
+        if not self.server.is_connected():
+            return False
+
         if self.conf.get("password"):
             return self.server.authenticated
 
-        return self.server.is_connected()
+        return True
 
     @asyncio.coroutine
     def connect(self):
