@@ -1,6 +1,11 @@
 """Creating and managing WebTiles websocket connections."""
 
 import asyncio
+if hasattr(asyncio, "async"):
+    ensure_future = asyncio.async
+else:
+    ensure_future = asyncio.ensure_future
+
 import logging
 import os
 import re
@@ -68,10 +73,10 @@ class ConnectionHandler():
             except Exception as e:
                 self.log_exception(e, "unable to connect")
                 yield from asyncio.sleep(_RETRY_CONNECTION_WAIT)
-                asyncio.ensure_future(self.manager.stop_connection(self))
+                ensure_future(self.manager.stop_connection(self))
                 return
 
-        self.ping_task = asyncio.ensure_future(self.start_ping())
+        self.ping_task = ensure_future(self.start_ping())
 
         while True:
             yield from self.handle_pre_read()
@@ -83,7 +88,7 @@ class ConnectionHandler():
                 return
             except Exception as e:
                 self.log_exception(e, "unable to read WebSocket")
-                asyncio.ensure_future(self.manager.stop_connection(self))
+                ensure_future(self.manager.stop_connection(self))
                 return
 
             if not messages:
@@ -96,7 +101,7 @@ class ConnectionHandler():
                     return
                 except Exception as e:
                     self.log_exception(e, "unable to handle WebSocket message")
-                    asyncio.ensure_future(self.manager.stop_connection(self))
+                    ensure_future(self.manager.stop_connection(self))
                     return
 
 
@@ -189,7 +194,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
 
         if (self.time_since_request
             and time.time() - self.time_since_request >= _REQUEST_TIMEOUT):
-            asyncio.ensure_future(self.manager.stop_connection(self))
+            ensure_future(self.manager.stop_connection(self))
             return
 
         if (self.logged_in
@@ -228,7 +233,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         except Exception as e:
             self.log_exception(e, "unable to send chat message {}".format(
                 message))
-            asyncio.ensure_future(self.manager.stop_connection(self))
+            ensure_future(self.manager.stop_connection(self))
             return
 
     @asyncio.coroutine
@@ -247,7 +252,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
 
         elif message["msg"] == "game_ended" and self.watching:
             _log.info("WebTiles: Game ended for user %s", self.watch_username)
-            asyncio.ensure_future(self.manager.stop_connection(self))
+            ensure_future(self.manager.stop_connection(self))
             return
 
         elif ((message["msg"] == "go_lobby"
@@ -256,7 +261,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
             # The game we were watching stopped for some reason.
             _log.warning("WebTiles: Told to go to lobby while watching user "
                          "%s.", self.watch_username)
-            asyncio.ensure_future(self.manager.stop_connection(self))
+            ensure_future(self.manager.stop_connection(self))
             return
 
         elif self.logged_in and message["msg"] == "chat":
@@ -341,7 +346,7 @@ class WebTilesManager():
             return
 
         conn = GameConnection(self, watch_username, game_id)
-        conn.task = asyncio.ensure_future(conn.start())
+        conn.task = ensure_future(conn.start())
         self.connections.add(conn)
 
     @asyncio.coroutine
@@ -364,7 +369,7 @@ class WebTilesManager():
             self.lobby = LobbyConnection(self)
         while True:
             if not self.lobby.task or self.lobby.task.done():
-                self.lobby.task = asyncio.ensure_future(self.lobby.start())
+                self.lobby.task = ensure_future(self.lobby.start())
 
             autowatch_game = None
             if self.conf["protocol_version"] >= 2 or self.lobby.lobby_complete:
@@ -409,7 +414,7 @@ class WebTilesManager():
 
         if not self.autowatch:
             self.autowatch = GameConnection(self, watch_username, game_id)
-            self.autowatch.task = asyncio.ensure_future(self.autowatch.start())
+            self.autowatch.task = ensure_future(self.autowatch.start())
         else:
             yield from self.autowatch.send_watch_game(watch_username, game_id)
 

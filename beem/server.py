@@ -6,7 +6,13 @@ knowledge bots for DCSS from WebTiles chat.
 """
 
 import argparse
+
 import asyncio
+if hasattr(asyncio, "async"):
+    ensure_future = asyncio.async
+else:
+    ensure_future = asyncio.ensure_future
+
 import functools
 import logging
 import os
@@ -124,11 +130,10 @@ class BeemServer:
     def process(self):
         tasks = []
 
-        self.webtiles_task = asyncio.ensure_future(
-            self.webtiles_manager.start())
+        self.webtiles_task = ensure_future(self.webtiles_manager.start())
         tasks.append(self.webtiles_task)
 
-        self.dcss_task = asyncio.ensure_future(self.dcss_manager.start())
+        self.dcss_task = ensure_future(self.dcss_manager.start())
         tasks.append(self.dcss_task)
 
         yield from asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
