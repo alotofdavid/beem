@@ -445,7 +445,7 @@ class WebTilesManager():
         end_reason = None
         if not game_allowed:
             end_reason = "Game disallowed"
-        elif not self.dcss_manager.logged_in:
+        elif not self.dcss_manager.ready():
             end_reason = "DCSS not ready"
         elif idle_time >= self.conf["max_game_idle"]:
             end_reason = "Game idle"
@@ -487,7 +487,7 @@ class WebTilesManager():
                             and len(self.connections) >= max_subscribers)
             # Find an autowatch candidate
             if (self.conf.get("autowatch_enabled")
-                and self.dcss_manager.logged_in
+                and self.dcss_manager.ready()
                 and entry["spectator_count"] >= min_spectators
                 and (not subscribed or no_free_slot)
                 # If there's a tie, favor a game we're already autowatching
@@ -527,7 +527,7 @@ class WebTilesManager():
                 end_reason = None
                 if not allowed:
                     end_reason = "Game disallowed"
-                if not self.dcss_manager.logged_in:
+                if not self.dcss_manager.ready():
                     end_reason = "DCSS not ready"
                 elif idle:
                     end_reason = "Game idle"
@@ -549,7 +549,7 @@ class WebTilesManager():
                 continue
 
             # We can't watch yet or they already have a subscriber slot.
-            if not self.dcss_manager.logged_in or not lobby or wait or conn:
+            if not self.dcss_manager.ready() or not lobby or wait or conn:
                 continue
 
             # Try to give the game a subscriber slot. If this fails, the entry

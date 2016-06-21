@@ -10,16 +10,20 @@ user_db = "user_data.db3"
 # === DCSS IRC settings ===
 [dcss]
 
-# IRC server and account data. You'll need a registered nick for your bot on
-# freenode.
+# IRC server and account data.
 # nick = ""
 
-# If you register the nick you use for your bot, define this to have the bot
-# identify with the NickServe.
-# nickserv_password = ""
+# Set to true to enable SSL support, and change the port field to an
+# ssl-enabled port.
+use_ssl = true
 
-# Freenode host and port
-hostname = "chat.freenode.org"
+# If you register the nick used for your bot on Freenode, define this field to
+# have the bot log in with SASL. When using a password, for security reasons
+# you probably want to set `use_ssl = true' above to enable SSL support.
+# password = ""
+
+# IRC host and port
+hostname = "irc.freenode.net"
 port = 6667
 
 # Chat messages matching these regular expressions anywhere in the message will

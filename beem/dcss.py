@@ -1,9 +1,12 @@
 """IRC connection management for DCSS knowledge bots"""
 
 import asyncio
+import base64
 import irc.client
+import irc.functools as irc_functools
 import logging
 import re
+import ssl
 import time
 
 _log = logging.getLogger()
@@ -107,8 +110,7 @@ class DCSSManager():
             self.bots[bot_conf["nick"]] = bot
         self.managers = {}
 
-        self.logged_in = False
-        self.reactor = irc.client.Reactor()
+        self.reactor = Reactor()
         self.reactor.add_global_handler("all_events", self.dispatcher, -10)
         self.server = self.reactor.server()
 
@@ -118,38 +120,37 @@ class DCSSManager():
             error_reason = e.args[0]
         _log.error("DCSS: %s: %s", error_msg, error_reason)
 
+    def ready(self):
+        if self.conf.get("password"):
+            return self.server.authenticated
+
+        return self.server.is_connected()
+
     @asyncio.coroutine
     def connect(self):
         """Connect to IRC."""
 
-        self.logged_in = False
+        assert not self.server.is_connected()
+
         self.messages = []
         self.queries = {}
         for bot_nick, bot in self.bots.items():
             bot.queue = []
 
         if self.conf.get("fake_connect"):
-            self.logged_in = True
-            return
+            self.server.authenticated = True
 
-        if self.server.is_connected():
-            self.server.disconnect()
-
-        _log.info("DCSS: Connecting to IRC server %s using nick %s",
-                  self.conf["hostname"], self.conf["nick"])
-        self.server.connect(self.conf["hostname"], self.conf["port"],
-                            self.conf["nick"], None, None, self.conf["nick"])
-
-        if self.conf.get("nickserv_password"):
-            try:
-                yield from self.send("NickServ", "identify {}".format(
-                    self.conf["nickserv_password"]))
-            except Exception as e:
-                self.log_exception(e, "Unable to send auth to NickServ")
-                yield from self.disconnect()
-                raise
+        if self.conf.get("use_ssl"):
+            factory = irc.connection.Factory(wrapper=ssl.wrap_socket)
         else:
-            self.logged_in = True
+            factory = irc.connection.Factory()
+
+        _log.info("DCSS: Connecting to IRC server %s port %d using nick %s",
+                  self.conf["hostname"], self.conf["port"], self.conf["nick"])
+        self.server.connect(self.conf["hostname"], self.conf["port"],
+                            self.conf["nick"],
+                            password=self.conf.get("password"),
+                            connect_factory=factory)
 
     def disconnect(self):
         """Disconnect IRC. This will log any disconnection error, but never raise.
@@ -165,8 +166,9 @@ class DCSSManager():
             self.log_exception(e, "Error when disconnecting IRC")
 
     def is_connected(self):
-        # Make sure connect() is run at least once even under fake_connect
-        if self.conf.get("fake_connect") and self.logged_in:
+        # We check server.authenticated to make sure connect() is called once
+        # when fake_connect is true.
+        if self.conf.get("fake_connect") and self.server.authenticated:
             return True
 
         return self.server.is_connected()
@@ -175,14 +177,19 @@ class DCSSManager():
     def start(self):
         _log.info("DCSS: Starting manager")
         while True:
+            tried_connect = False
             while not self.is_connected():
+                if tried_connect:
+                    yield from asyncio.sleep(_RECONNECT_TIMEOUT)
+
                 try:
                     yield from self.connect()
                 except asyncio.CancelledError:
                     return
                 except Exception as e:
                     self.log_exception(e, "Unable to connect IRC")
-                    yield from asyncio.sleep(_RECONNECT_TIMEOUT)
+
+                tried_connect = True
 
             try:
                 self.reactor.process_once()
@@ -213,25 +220,30 @@ class DCSSManager():
         Dispatch events to on_<event.type> method, if present.
         """
 
-        if event.type == "privnotice":
-            self.on_privnotice(event)
-        elif event.type == "privmsg":
+        if event.type == "privmsg":
             self.on_privmsg(event)
+            return
 
-    def on_privnotice(self, event):
-        message = event.arguments[0]
-        if (not self.logged_in
-            and event.source.find("NickServ!") == 0
-            and message.lower().find("you are now identified") > -1):
-            _log.info("DCSS: Identified by NickServ")
-            self.logged_in = True
+        # SASL-related message handling from here on.
+        if not self.conf.get("password"):
+            return
+
+        elif event.type == "900":
+            self.on_900_message(event)
+
+    def on_900_message(self, event):
+        _log.info("DCSS: SASL authentication complete")
+
+    def on_904_message(self, event):
+        _log.critical("DCSS: SASL authentication failed, shutting down")
+        os.kill(os.getpid(), signal.SIGTERM)
 
     def on_privmsg(self, event):
         """
         Handle irc private message
         """
 
-        if not self.logged_in:
+        if not self.ready():
             return
 
         message = re.sub(
@@ -375,3 +387,142 @@ class DCSSManager():
                 return True
 
         return False
+
+class ServerConnection(irc.client.ServerConnection):
+    """The ServerConnection class from irc.client, modified to send a differently
+    formatted USER command, to support automatic capability requests, and to
+    support SASL authentication. Once SASL authentication is complete, the
+    authenticated property will be True.
+
+    """
+
+    # save the method args to allow for easier reconnection.
+    @irc_functools.save_method_args
+    def connect(self, server, port, nickname, username=None, password=None,
+                ircname=None, capabilities=[],
+                connect_factory=irc.connection.Factory()):
+        """Connect/reconnect to a server.
+
+        Arguments:
+
+        * server - Server name
+        * port - Port number
+        * nickname - The nickname
+        * username - The username
+        * password - Password, which is used for SASL authentication
+        * ircname - The IRC name ("realname")
+        * capabilities - A list of strings of capabilities to request from the
+                         server. The sasl capability is automatically added
+                         if password is defined.
+        * connect_factory - A callable that takes the server address and
+          returns a connection (with a socket interface)
+
+        This function can be called to reconnect a closed connection.
+
+        Returns the ServerConnection object.
+
+        """
+        _log.debug("connect(server=%r, port=%r, nickname=%r, ...)", server,
+            port, nickname)
+
+        if self.connected:
+            self.disconnect("Changing servers")
+
+        self.buffer = self.buffer_class()
+        self.handlers = {}
+        self.real_server_name = ""
+        self.real_nickname = nickname
+        self.server = server
+        self.port = port
+        self.server_address = (server, port)
+        self.nickname = nickname
+        self.username = username or nickname
+        self.ircname = ircname or nickname
+        self.password = password
+        self.authenticated = False
+        self.capabilities = capabilities
+        self.connect_factory = connect_factory
+        try:
+            self.socket = self.connect_factory(self.server_address)
+        except socket.error as ex:
+            raise irc.client.ServerConnectionError(
+                "Couldn't connect to socket: %s" % ex)
+        self.connected = True
+        self.reactor._on_connect(self.socket)
+
+        # Need SASL capability if we're using a password.
+        if self.password and "sasl" not in self.capabilities:
+            self.capabilities.append("sasl")
+
+        if self.capabilities:
+            self.cap("REQ", *self.capabilities)
+
+        self.nick(self.nickname)
+        self.user(self.username, self.ircname)
+        return self
+
+    def user(self, username, realname):
+        """Send a USER command. This form is slightly modified from the USER
+        command sent in the original irc.client.ServerConnection
+
+        """
+
+        self.send_raw("USER {0} {0} {1} :{2}".format(username, self.server,
+                                                     realname))
+
+    def authenticate(self, request_method=False):
+        """AUTHENTICATE command. If request_method is True, request PLAIN
+        authentication, which is the only type we support. Otherwise send the
+        authentication credentials.
+
+        """
+
+        if request_method:
+            self.send_raw("AUTHENTICATE PLAIN")
+            return
+
+        authdata = base64.b64encode("{0}\x00{0}\x00{1}".format(
+            self.username, self.password).encode())
+
+        self.send_raw("AUTHENTICATE {}".format(authdata.decode()))
+
+
+class Reactor(irc.client.Reactor):
+    """The Reactor class from irc.client that uses our modified ServerConnection
+    class and coordinates capabilities and SASL requests.
+
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.add_global_handler("cap", self.handle_cap)
+        self.add_global_handler("authenticate", self.handle_sasl_authenticate)
+        self.add_global_handler("900", self.handle_sasl_900)
+
+    def server(self):
+        """Creates and returns a ServerConnection object."""
+
+        c = ServerConnection(self)
+        with self.mutex:
+            self.connections.append(c)
+        return c
+
+    def handle_cap(self, connection, event):
+        if not connection.capabilities:
+            return
+
+        # Start SASL authorization.
+        elif event.arguments[0].lower() == "ack" and connection.password:
+            connection.authenticate(True)
+
+    def handle_sasl_authenticate(self, connection, event):
+        if not connection.password:
+            return
+
+        if event.target == "+":
+            connection.authenticate()
+
+    def handle_sasl_900(self, connection, event):
+        connection.cap("END")
+        connection.authenticated = True
