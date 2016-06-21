@@ -24,6 +24,7 @@ from .dcss import DCSSManager
 from .config import BeemConfig
 from .webtiles import WebTilesManager, db_fields
 from .userdb import UserDB
+from .version import version
 
 ## Will be configured by beem_server after the config is loaded.
 _log = logging.getLogger()
@@ -148,6 +149,7 @@ def main():
     parser.add_argument("-c", dest="config_file", metavar="<toml-file>",
                         default=_DEFAULT_BEEM_CONFIG_FILE,
                         help="The beem config file to use.")
+    parser.add_argument("--version", action="version", version=version)
     args = parser.parse_args()
 
     server = BeemServer(args.config_file)
