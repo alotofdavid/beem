@@ -10,6 +10,8 @@ import base64
 import irc.client
 import irc.functools as irc_functools
 import logging
+import os
+import signal
 import re
 import ssl
 import time
