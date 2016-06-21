@@ -154,6 +154,7 @@ class DCSSManager():
                   self.conf["hostname"], self.conf["port"], self.conf["nick"])
         self.server.connect(self.conf["hostname"], self.conf["port"],
                             self.conf["nick"],
+                            username=self.conf.get("username"),
                             password=self.conf.get("password"),
                             connect_factory=factory)
 

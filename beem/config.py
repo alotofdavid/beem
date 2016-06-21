@@ -30,11 +30,24 @@ class Config():
     def error(self, msg):
         raise Exception("Config file {}: {}".format(self.path, msg))
 
-    def require_table_fields(self, table_name, table, fields):
+    def require_table_fields(self, table_name, table, fields,
+                             condition_field=None):
+        """Require the given fields be defined in the given table. If
+        condition_field is defined, the fields will only be required if the
+        field in condition_field is defined.
+
+        """
+
+        if condition_field and condition_field not in table:
+            return
+
+        condition_text = ""
+        if condition_field:
+            condition_text = "field {} defined but"
         for field in fields:
             if field not in table:
-                self.error("In table {}, field {} undefined.".format(
-                    table_name, field))
+                self.error("In table {}, {}field {} undefined.".format(
+                    table_name, condition_text, field))
 
     def init_logging(self):
         if not self.get("logging_config"):
@@ -42,16 +55,10 @@ class Config():
 
         log_conf = self.logging_config
         self.require_table_fields("logging_config", log_conf, ["format"])
+        self.require_table_fields("logging_config", log_conf,
+                                  ["max_bytes", "backup_count"], "filename")
 
         if log_conf.get("filename"):
-            if not log_conf.get("max_bytes"):
-                self.error("in logging_config table, filename enabled but "
-                           "max_bytes undefined.")
-
-            if not log_conf.get("backup_count"):
-                self.error("in logging_config table, filename enabled but "
-                           "backup_count undefined.")
-
             handler = RotatingFileHandler(log_conf["filename"],
                                           maxBytes=log_conf["max_bytes"],
                                           backupCount=log_conf["backup_count"])
@@ -72,6 +79,8 @@ class Config():
 
         self.require_table_fields("dcss", self.dcss,
                                   ["hostname", "port", "nick"])
+
+        self.require_table_fields("dcss", self.dcss, ["password"], "username")
 
         if not self.dcss.get("bots"):
             self.error("No IRC bots defined in the dcss.bots table.")
@@ -120,7 +129,6 @@ class BeemConfig(Config):
                                   ["server_url", "protocol_version",
                                    "username", "password", "help_text"])
 
-
         if self.get("watch_username"):
             self.webtiles["max_watched_subscribers"] = 1
             self.webtiles["max_game_idle"] = float("inf")
@@ -132,11 +140,12 @@ class BeemConfig(Config):
                                   ["max_watched_subscribers", "max_game_idle",
                                    "game_rewatch_timeout"])
 
-        if webtiles.get("autowatch_enabled"):
-            self.require_table_fields("webtiles", webtiles,
-                                      ["min_autowatch_spectators"])
+        self.require_table_fields("webtiles", webtiles,
+                                  ["min_autowatch_spectators"],
+                                  "autowatch_enabled")
 
     def load(self):
         super().load()
 
         self.check_webtiles()
+

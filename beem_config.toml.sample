@@ -10,21 +10,23 @@ user_db = "user_data.db3"
 # === DCSS IRC settings ===
 [dcss]
 
-# IRC server and account data.
-# nick = ""
+# IRC host and port
+hostname = "irc.freenode.net"
+port = 6667
 
 # Set to true to enable SSL support, and change the port field to an
 # ssl-enabled port.
 use_ssl = true
 
-# If you register the nick used for your bot on Freenode, define this field to
-# have the bot log in with SASL. When using a password, for security reasons
-# you probably want to set `use_ssl = true' above to enable SSL support.
-# password = ""
+# IRC nick. If SASL is used, this can be different from the username below.
+# nick = ""
 
-# IRC host and port
-hostname = "irc.freenode.net"
-port = 6667
+# If you register the nick used for your bot on Freenode, define username and
+# password to have the bot log in with SASL. When using SASL, for security
+# reasons you probably want to set `use_ssl = true' above to enable SSL
+# support.
+# username = ""
+# password = ""
 
 # Chat messages matching these regular expressions anywhere in the message will
 # not be passed on to any IRC bot. You can add regular expression patterns to
