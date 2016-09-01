@@ -21,9 +21,9 @@ _log = logging.getLogger()
 # Max number of queries we can have waiting for a response before we refuse
 # further queries. The limit is 10 ** _QUERY_ID_DIGITS.
 _QUERY_ID_DIGITS = 2
-# How long to wait for a query before ignoring any result from a bot and
-# reusing the query ID.
-_MAX_REQUEST_TIME = 80
+# How long to wait in second for a query before ignoring any result from a bot
+# and reusing the query ID. Sequell times out after 90s, so we use 100s.
+_MAX_REQUEST_TIME = 100
 # How long to wait after a connection failure before reattempting the
 # connection.
 _RECONNECT_TIMEOUT = 5
@@ -78,8 +78,10 @@ class IRCBot():
         return message
 
     def get_query_id(self, nick, message):
+        # First part of a monster query result.
         monster_pattern = (r"Monster stats|Invalid|unknown|bad|[^()|]+ "
                            "\(.\) \|")
+        # First part of a git query result.
         git_pattern = r"github\.com|^Could not"
         query_id = None
         if self.conf["use_relay"]:
@@ -91,13 +93,13 @@ class IRCBot():
                 return
 
             query_id = int(match.group(1))
-
         elif (self.conf["has_monster"] and re.match(monster_pattern, message)
               or self.conf["has_git"] and re.search(git_pattern, message)):
             if not len(self.queue):
                 _log.error("DCSS: Received %s result but no request in "
                            "queue: %s", nick, message)
                 return
+
             query_id = self.queue.pop(0)
 
         return query_id
@@ -145,6 +147,8 @@ class DCSSManager():
 
         self.messages = []
         self.queries = {}
+        self.last_returned_query = None
+        self.last_returned_query_id = None
         for bot_nick, bot in self.bots.items():
             bot.queue = []
 
@@ -165,7 +169,8 @@ class DCSSManager():
                             connect_factory=factory)
 
     def disconnect(self):
-        """Disconnect IRC. This will log any disconnection error, but never raise.
+        """Disconnect IRC. This will log any disconnection error, but never
+        raise.
 
         """
 
@@ -268,34 +273,48 @@ class DCSSManager():
 
     def make_query_id(self, source, username):
         new_id = None
-        for i in range(0, 10 ** _QUERY_ID_DIGITS):
-            if i not in self.queries:
-                new_id = i
-                break
+        current_time = time.time()
 
-            source_key, username, query_time = self.queries[i]
-            if time.time() - query_time >= _MAX_REQUEST_TIME:
+        if (self.last_returned_query
+            and current_time - self.last_returned_query[2] >= _MAX_REQUEST_TIME):
+            self.last_returned_query_id = None
+            self.last_returned_query = None
+
+        for i in range(0, 10 ** _QUERY_ID_DIGITS):
+            if i in self.queries:
+                source_key, username, query_time = self.queries[i]
+                if current_time - query_time >= _MAX_REQUEST_TIME:
+                    new_id = i
+                    break
+
+            elif i != self.last_returned_query_id:
                 new_id = i
                 break
 
         if new_id is None:
             raise Exception("too many queries in queue")
 
-        self.queries[new_id] = (source.get_source_key(), username, time.time())
+        self.queries[new_id] = (source.get_source_key(), username, current_time)
         return new_id
 
     def get_query(self, nick, message):
         query_id = self.bots[nick].get_query_id(nick, message)
         if query_id is None:
-            return
+            if self.last_returned_query_id is None:
+                return
+            else:
+                query_id = self.last_returned_query_id
 
-        try:
-            source_key, username, query_time = self.queries[query_id]
-            del self.queries[query_id]
-        except KeyError:
-            _log.warning("DCSS: Received %s message with unknown query id: "
-                         "%s ", nick, message)
-            return
+        if query_id is self.last_returned_query_id:
+            source_key, username, query_time = self.last_returned_query
+        else:
+            try:
+                source_key, username, query_time = self.queries[query_id]
+                del self.queries[query_id]
+            except KeyError:
+                _log.warning("DCSS: Received %s message with unknown query id: "
+                             "%s ", nick, message)
+                return
 
         manager = self.managers[source_key[0]]
         source = manager.get_source_by_key(source_key)
@@ -304,6 +323,8 @@ class DCSSManager():
                          nick, message)
             return
 
+        self.last_returned_query = (source_key, username, query_time)
+        self.last_returned_query_id = query_id
         return (source, username)
 
     @asyncio.coroutine
