@@ -15,6 +15,7 @@ import webtiles
 from websockets.exceptions import ConnectionClosed
 
 from .chat import ChatWatcher, bot_nick_command
+from .version import version as Version
 
 _log = logging.getLogger()
 
@@ -667,21 +668,19 @@ def bot_unsubscribe_command(source, username):
 def bot_status_command(source, *args):
     """`!<bot-name> status` chat command"""
 
-    report = ""
+    report = "Version {}".format(Version)
     manager = source.manager
     if manager.autowatch and manager.autowatch.watching:
         num_specs = len(manager.autowatch.spectators)
         if manager.autowatch.watch_username in manager.autowatch.spectators:
             num_specs -= 1
-        report = "Autowatching user {} with {} spec(s)".format(
+        report = "; Autowatching user {} with {} spec(s)".format(
             manager.autowatch.watch_username, num_specs)
 
     if manager.connections:
-        if report:
-            report += "; "
         names = sorted(
             [conn.watch_username.lower() for conn in manager.connections])
-        report += "Watching {} subscribers: {}".format(len(manager.connections),
+        report += "; Watching {} subscriber(s): {}".format(len(manager.connections),
                                               ", ".join(names))
 
     if not report:
