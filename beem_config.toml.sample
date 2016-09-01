@@ -42,21 +42,22 @@ nick = "Sequell"
 # These are regular expression patterns that beem accepts as prefixes to
 # bot commands in WebTiles chat. A chat message must match one of these at
 # the _beginning_ of the message to be forwarded to Sequell.
-patterns = ['r?\?\?[^?]', '\?/', '![^!]', '&[^&]', '\.[^\.]']
+patterns = ['^\?\?[^?]', '[^?]\?\?\? *$', '^r\?\?', '^\?/', '^![^!]', '^&[^&]',
+            '^\.[^\.]', '^=[^=]']
 use_relay = true
 has_monster = false
 has_git = false
 
 [[dcss.bots]]
 nick = "Gretell"
-patterns = ['@\?\??']
+patterns = ['^@\?\??']
 use_relay = false
 has_monster = true
 has_git = false
 
 [[dcss.bots]]
 nick = "Cheibriados"
-patterns = ['%(git|[0-9].[0-9]+|\?\?)']
+patterns = ['^%git', '^%\?\??', '^%[0-9]+.[0-9]+\?']
 use_relay = false
 has_monster = true
 has_git = true

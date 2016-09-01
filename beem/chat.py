@@ -109,9 +109,7 @@ class ChatWatcher():
 
         """
 
-        return (self.manager.dcss_manager.is_dcss_message(message)
-                or message[0] == "!"
-                or message[0] == "_")
+        return message[0] == "!" or message[0] == "_"
 
     @asyncio.coroutine
     def read_chat(self, sender, message):

@@ -41,8 +41,9 @@ class IRCBot():
         """
 
         for p in self.conf["patterns"]:
-            if re.match(p, message):
+            if re.search(p, message):
                 return True
+
         return False
 
     @asyncio.coroutine
