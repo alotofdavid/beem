@@ -214,6 +214,18 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         yield from self.send_chat(greeting)
         self.need_greeting = False
 
+    def user_allowed_dcss(self, user):
+        """Return True if the user is allowed to execute dcss bot commands."""
+
+        if self.manager.user_is_admin(user):
+            return True
+
+        user_data = self.manager.user_db.get_user_data(self.watch_username)
+        if user_data and user_data["player_only"]:
+            return user == self.watch_username
+
+        return True
+
     @asyncio.coroutine
     def send_chat(self, message, is_action=False):
         """Send a WebTiles chat message. We currently shut down the game
@@ -688,8 +700,29 @@ def bot_status_command(source, *args):
 
     yield from source.send_chat(report)
 
+@asyncio.coroutine
+def bot_player_only_command(source, username, state=None):
+    """`!<bot-name> player-only` chat command"""
+
+    mgr = source.manager
+    user_data = mgr.user_db.get_user_data(username)
+    if not user_data:
+        user_data = mgr.user_db.register_user(username)
+
+    if state is None:
+        state_desc = "on" if user_data["player_only"] else "off"
+        yield from source.send_chat(
+            "Player-only responses to bot commands for user {} are {}".format(
+                username, state_desc))
+        return
+
+    state_val = 1 if state == "on" else 0
+    mgr.user_db.set_user_field(username, "player_only", state_val)
+    yield from source.send_chat(
+        "Player-only responses to bot commands for user {} set to {}".format(username, state))
+
 # Fields names and default values in the WebTiles user DB.
-db_fields = [("nick", ""), ("subscription", 0)]
+db_fields = [("nick", ""), ("subscription", 0), ("player_only", 0)]
 
 # WebTiles bot commands
 bot_commands = {
@@ -720,5 +753,12 @@ bot_commands = {
         "single_user_allowed" : True,
         "admin" : True,
         "function" : bot_status_command,
+    },
+    "player-only" : {
+        "arg_pattern" : r"^(on|off)$",
+        "arg_description" : "on|off",
+        "single_user_allowed" : True,
+        "admin" : False,
+        "function" : bot_player_only_command,
     },
 }

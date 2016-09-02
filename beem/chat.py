@@ -25,6 +25,7 @@ class ChatWatcher():
 
     def is_allowed_user(self, username):
         """Ignore chat messages from ourself and disallowed users."""
+
         return username != self.login_username
 
     @asyncio.coroutine
@@ -120,7 +121,8 @@ class ChatWatcher():
 
         bot_command = self.is_bot_command(message)
         if (not bot_command
-            and not self.manager.dcss_manager.is_dcss_message(message)):
+            and (not self.manager.dcss_manager.is_dcss_message(message)
+                 or not self.user_allowed_dcss(sender))):
             return
 
         current_time = time.time()

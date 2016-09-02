@@ -167,3 +167,10 @@ own games.
   on Freenode. If you only play on one WebTiles account, it's not necessary to
   set your nick with beem, since it will use your current account name for
   queries automatically.
+
+- `!beem player-only [on|off]`
+
+  If spectators are spamming too many DCSS bot commands in your game's chat,
+  type `!beem player-only on` to have it only respond to you for these queries.
+  You can toggle this setting on and off as much as you want. Note that beem
+  will still respond to anyone for the `!beem` control commands.
