@@ -686,7 +686,7 @@ def bot_status_command(source, *args):
         num_specs = len(manager.autowatch.spectators)
         if manager.autowatch.watch_username in manager.autowatch.spectators:
             num_specs -= 1
-        report = "; Autowatching user {} with {} spec(s)".format(
+        report += "; Autowatching user {} with {} spec(s)".format(
             manager.autowatch.watch_username, num_specs)
 
     if manager.connections:
