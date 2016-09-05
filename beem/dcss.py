@@ -70,9 +70,12 @@ class IRCBot():
         message = re.sub(r"\$p(?=\W|$)|\$\{p\}",
                          source.get_nick(source.watch_username), message)
         # Hack to make $chat get assigned to the |-separated list of chat users.
-        spec_nicks = [source.get_nick(name) for name in source.spectators]
-        message = re.sub(r"\$chat(?=\W|$)|\$\{chat\}", "|".join(spec_nicks),
-                         message)
+        spec_nicks = {source.get_nick(name) for name in source.spectators}
+        # On Twitch, JOIN/PART messages can be slow, so make sure we always at
+        # least include the requester, who's clearly in chat.
+        spec_nicks.add(source.get_nick(username))
+        message = re.sub(r"\$chat(?=\W|$)|\$\{chat\}", 
+                         "@" + "|".join(spec_nicks), message)
         message = "!RELAY -nick {} -channel {} -prefix {} -n 1 {}".format(
             source.get_nick(username), source.irc_channel, prefix, message)
         return message
