@@ -63,21 +63,20 @@ class IRCBot():
                 self.queue.pop()
             raise
 
-    def prepare_relay_message(self, source, username, query_id, message):
+    def prepare_relay_message(self, source, sender, query_id, message):
         id_format = "{{:0{}}}".format(_QUERY_ID_DIGITS)
         prefix = id_format.format(query_id)
+
         # Hack to make $p get assigned to the player for Sequell purposes.
-        message = re.sub(r"\$p(?=\W|$)|\$\{p\}",
-                         source.get_nick(source.watch_username), message)
+        message = re.sub(r"\$p(?=\W|$)|\$\{p\}", 
+                         source.lookup_nick(source.watch_username), message)
         # Hack to make $chat get assigned to the |-separated list of chat users.
-        spec_nicks = {source.get_nick(name) for name in source.spectators}
-        # On Twitch, JOIN/PART messages can be slow, so make sure we always at
-        # least include the requester, who's clearly in chat.
-        spec_nicks.add(source.get_nick(username))
         message = re.sub(r"\$chat(?=\W|$)|\$\{chat\}", 
-                         "@" + "|".join(spec_nicks), message)
+                         "@" + "|".join(source.get_chat_nicks(sender)),
+                         message)
+
         message = "!RELAY -nick {} -channel {} -prefix {} -n 1 {}".format(
-            source.get_nick(username), source.irc_channel, prefix, message)
+            source.lookup_nick(sender), source.irc_channel, prefix, message)
         return message
 
     def get_query_id(self, nick, message):

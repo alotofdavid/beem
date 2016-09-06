@@ -174,18 +174,6 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
 
         return (self.manager.service, self.watch_username, self.game_id)
 
-    def get_nick(self, username):
-        """Return the nick we have mapped for the given user. Return the
-        username if no such mapping exists.
-
-        """
-
-        user_data = self.manager.user_db.get_user_data(username)
-        if not user_data or not user_data["nick"]:
-            return username
-
-        return user_data["nick"]
-
     @asyncio.coroutine
     def handle_pre_read(self):
         """For a game connection, we check timeouts on login and watch
@@ -213,6 +201,31 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         greeting = greeting.replace("%n", self.login_username)
         yield from self.send_chat(greeting)
         self.need_greeting = False
+
+    def lookup_nick(self, username):
+        """Return the nick we have mapped for the given user. Return the
+        username if no such mapping exists.
+
+        """
+
+        user_data = self.manager.user_db.get_user_data(username)
+        if not user_data or not user_data["nick"]:
+            return username
+
+        return user_data["nick"]
+
+    def user_is_bot(self, username):
+        # XXX Probably move this to the config, but the use/meaning of
+        # .spectators and .moderators is still in a bit of flux.
+        bots = {"lomlobot"}
+        return username.lower() in bots
+
+    def get_chat_nicks(self, sender):
+        nicks = set()
+        for username in self.spectators:
+            if not self.user_is_bot(username):
+                nicks.add(self.lookup_nick(username))
+        return nicks
 
     def user_allowed_dcss(self, user):
         """Return True if the user is allowed to execute dcss bot commands."""
