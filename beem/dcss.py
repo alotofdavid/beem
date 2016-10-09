@@ -72,7 +72,7 @@ class IRCBot():
                          source.lookup_nick(source.watch_username), message)
         # Hack to make $chat get assigned to the |-separated list of chat users.
         message = re.sub(r"\$chat(?=\W|$)|\$\{chat\}", 
-                         "@" + "|".join(source.get_chat_nicks(sender)),
+                         "@" + "|@".join(source.get_chat_nicks(sender)),
                          message)
 
         message = "!RELAY -nick {} -channel {} -prefix {} -n 1 {}".format(
