@@ -88,7 +88,7 @@ class Config():
         for i, entry in enumerate(self.dcss["bots"]):
             self.require_table_fields("dcss.bots, entry {}".format(i + 1),
                                       entry,
-                                      ["nick", "patterns", "use_relay",
+                                      ["nick", "patterns", "has_sequell",
                                        "has_monster", "has_git"])
 
     def load(self):
@@ -111,7 +111,6 @@ class Config():
                 config_fh.close()
 
         self.init_logging()
-        self.check_dcss()
 
 
 class BeemConfig(Config):
@@ -148,4 +147,4 @@ class BeemConfig(Config):
         super().load()
 
         self.check_webtiles()
-
+        self.check_dcss()

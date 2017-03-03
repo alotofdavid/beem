@@ -14,7 +14,7 @@ import time
 import webtiles
 from websockets.exceptions import ConnectionClosed
 
-from .chat import ChatWatcher, bot_nick_command
+from .chat import ChatWatcher, bot_help_command
 from .version import version as Version
 
 _log = logging.getLogger()
@@ -122,7 +122,7 @@ class LobbyConnection(webtiles.WebTilesConnection, ConnectionHandler):
     def log_exception(self, e, error_msg):
         error_reason = type(e).__name__
         if e.args:
-            error_reason = e.args[0]
+            error_reason = "{}: {}".format(error_reason, e.args[0])
         _log.error("WebTiles: In lobby connection, %s: %s", error_msg,
                    error_reason)
 
@@ -146,18 +146,19 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
                 self.need_greeting = False
             else:
                 self.need_greeting = True
-        self.irc_channel = "WebTiles"
+        self.name = watch_username
         # Last time we either send the watch command or had watched a game,
         # used so we can reuse connections, but end them after being idle for
         # too long.
         self.last_reminder_time = None
 
-    def log_exception(self, e, error_msg):
-        error_reason = type(e).__name__
-        if e.args:
-            error_reason = e.args[0]
-        _log.error("WebTiles: In game for user %s, %s: %s", self.watch_username,
-                   error_msg, error_reason)
+    def describe_source(self):
+        name = self.name
+        if name.lower().endswith('s'):
+            name = name + "'"
+        else:
+            name = name + "'s"
+        return "{} game".format(name)
 
     def connect(self):
         yield from super().connect(self.manager.conf["server_url"],
@@ -165,14 +166,16 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
                                    self.manager.conf["password"],
                                    self.manager.conf["protocol_version"])
 
-    def get_source_key(self):
-        """Get a unique identifier tuple of the game for this connection.
+    def get_source_ident(self):
+        """Get a unique identifier dict of the game for this connection.
         Identifies this game connection as a source for chat watching. This is
         used to map DCSS queries to their results as they're received.
 
         """
 
-        return (self.manager.service, self.watch_username, self.game_id)
+        return {"service" : self.manager.service,
+                "name" : self.watch_username,
+                "game_id" : self.game_id}
 
     @asyncio.coroutine
     def handle_pre_read(self):
@@ -202,18 +205,6 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         yield from self.send_chat(greeting)
         self.need_greeting = False
 
-    def lookup_nick(self, username):
-        """Return the nick we have mapped for the given user. Return the
-        username if no such mapping exists.
-
-        """
-
-        user_data = self.manager.user_db.get_user_data(username)
-        if not user_data or not user_data["nick"]:
-            return username
-
-        return user_data["nick"]
-
     def user_is_bot(self, username):
         # XXX Probably move this to the config, but the use/meaning of
         # .spectators and .moderators is still in a bit of flux.
@@ -224,7 +215,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         nicks = set()
         for username in self.spectators:
             if not self.user_is_bot(username):
-                nicks.add(self.lookup_nick(username))
+                nicks.add(username)
         return nicks
 
     def user_allowed_dcss(self, user):
@@ -240,14 +231,14 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         return True
 
     @asyncio.coroutine
-    def send_chat(self, message, is_action=False):
+    def send_chat(self, message, message_type="normal"):
         """Send a WebTiles chat message. We currently shut down the game
         connection if an error occurs and log the event, but don't raise to the
         caller, since we don't care to take any action.
 
         """
 
-        if is_action:
+        if message_type == "action":
             message = "*{}* {}".format(self.login_username, message)
         # In case any other beem bot happens to watch in the same
         # channel, don't cause a feedback loop by relaying Sequell output.
@@ -304,6 +295,7 @@ class WebTilesManager():
         self.user_db = user_db
         self.dcss_manager = dcss_manager
         dcss_manager.managers["WebTiles"] = self
+        self.single_user = conf.get("watch_username") is not None
         self.bot_commands = bot_commands
 
         self.lobby = None
@@ -329,8 +321,8 @@ class WebTilesManager():
 
         return
 
-    def get_source_by_key(self, source_key):
-        return self.get_connection(source_key[1], source_key[2])
+    def get_source_by_ident(self, ident):
+        return self.get_connection(ident["name"], ident["game_id"])
 
     @asyncio.coroutine
     def stop_connection(self, conn):
@@ -651,7 +643,7 @@ class WebTilesManager():
 
 @asyncio.coroutine
 def bot_subscribe_command(source, username):
-    """`!<bot-name> subscribe` chat command"""
+    """!subscribe chat command"""
 
     user_db = source.manager.user_db
     user_data = user_db.get_user_data(username)
@@ -669,7 +661,7 @@ def bot_subscribe_command(source, username):
 
 @asyncio.coroutine
 def bot_unsubscribe_command(source, username):
-    """`!<bot-name> unsubscribe` chat command"""
+    """!unsubscribe chat command"""
 
     user_db = source.manager.user_db
     user_data = user_db.get_user_data(username)
@@ -691,7 +683,7 @@ def bot_unsubscribe_command(source, username):
 
 @asyncio.coroutine
 def bot_status_command(source, *args):
-    """`!<bot-name> status` chat command"""
+    """!status chat command"""
 
     report = "Version {}".format(Version)
     manager = source.manager
@@ -705,8 +697,8 @@ def bot_status_command(source, *args):
     if manager.connections:
         names = sorted(
             [conn.watch_username.lower() for conn in manager.connections])
-        report += "; Watching {} subscriber(s): {}".format(len(manager.connections),
-                                              ", ".join(names))
+        report += "; Watching {} subscriber(s): {}".format(
+                len(manager.connections), ", ".join(names))
 
     if not report:
         raise Exception("Unable to find watched games for status report")
@@ -715,7 +707,7 @@ def bot_status_command(source, *args):
 
 @asyncio.coroutine
 def bot_player_only_command(source, username, state=None):
-    """`!<bot-name> player-only` chat command"""
+    """!player-only chat command"""
 
     mgr = source.manager
     user_data = mgr.user_db.get_user_data(username)
@@ -732,46 +724,47 @@ def bot_player_only_command(source, username, state=None):
     state_val = 1 if state == "on" else 0
     mgr.user_db.set_user_field(username, "player_only", state_val)
     yield from source.send_chat(
-        "Player-only responses to bot commands for user {} set to {}".format(username, state))
+        "Player-only responses to bot commands for user {} set to {}".format(
+            username, state))
 
 # Fields names and default values in the WebTiles user DB.
-db_fields = [("nick", ""), ("subscription", 0), ("player_only", 0)]
+db_fields = [("subscription", 0), ("player_only", 0)]
 
 # WebTiles bot commands
 bot_commands = {
+    "bothelp" : {
+        "arg_pattern" : None,
+        "arg_description" : None,
+        "single_user_allowed" : True,
+        "source_restriction" : None,
+        "function" : bot_help_command,
+    },
+    "status" : {
+        "arg_pattern" : None,
+        "arg_description" : None,
+        "single_user_allowed" : True,
+        "source_restriction" : "admin",
+        "function" : bot_status_command,
+    },
     "subscribe" : {
         "arg_pattern" : None,
         "arg_description" : None,
         "single_user_allowed" : False,
-        "admin" : False,
+        "source_restriction" : None,
         "function" : bot_subscribe_command,
     },
     "unsubscribe" : {
         "arg_pattern" : None,
         "arg_description" : None,
         "single_user_allowed" : False,
-        "admin" : False,
+        "source_restriction" : None,
         "function" : bot_unsubscribe_command,
-    },
-    "nick" : {
-        "arg_pattern" : r"^[a-zA-Z0-9_-]+$",
-        "arg_description" : "<nick>",
-        "single_user_allowed" : True,
-        "admin" : False,
-        "function" : bot_nick_command
-    },
-    "status" : {
-        "arg_pattern" : None,
-        "arg_description" : None,
-        "single_user_allowed" : True,
-        "admin" : True,
-        "function" : bot_status_command,
     },
     "player-only" : {
         "arg_pattern" : r"^(on|off)$",
         "arg_description" : "on|off",
         "single_user_allowed" : True,
-        "admin" : False,
+        "source_restriction" : "user",
         "function" : bot_player_only_command,
     },
 }

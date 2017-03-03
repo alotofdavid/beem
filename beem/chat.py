@@ -18,91 +18,132 @@ class ChatWatcher():
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.message_times = []
+        self.bot_command_prefix = '!'
+        self.admins_can_target = True
 
-    def is_bot_command(self, message):
-        pattern = r'!{}( +[^ ]|$)'.format(self.login_username)
-        return re.match(pattern, message, re.I)
+    def log_exception(self, e, error_msg):
+        error_reason = type(e).__name__
+        if e.args:
+            error_reason = "{}: {}".format(error_reason, e.args[0])
+        _log.error("%s: In %s, %s: %s", self.manager.service,
+                self.describe_source(), error_msg, error_reason)
 
     def is_allowed_user(self, username):
-        """Ignore chat messages from ourself and disallowed users."""
+        """Do we read commands at all from the given user? Ignore chat
+        messages from ourself."""
 
         return username != self.login_username
 
+    def user_allowed_dcss(self, user):
+        """Return True if the user is allowed to execute dcss bot commands."""
+
+        return True
+
+    def lookup_nick(self, username):
+        """Return the nick we have mapped for a given user. Returning
+        None for the player/streamer will cause no $p nick substitution
+        to occur."""
+
+        return username
+
+    def get_chat_nicks(self, sender):
+        """Return a set containing the nick mapping for all users in
+        chat. Returning none will cause no $chat variable nick
+        substitution to occur."""
+
+        return None
+
     @asyncio.coroutine
     def send_command_usage(self, command):
-        msg = "Usage: {} {}".format(self.login_username, command)
+        msg = "Usage: {}{}".format(self.bot_command_prefix, command)
         command_entry = self.manager.bot_commands[command]
         if command_entry["arg_description"]:
-            msg += " [{}]".format(command_entry["arg_description"])
+            arg_desc = command_entry["arg_description"]
+            if not command_entry.get("arg_required"):
+                arg_desc = "[{}]".format(arg_desc)
+            msg += " {}".format(arg_desc)
         yield from self.send_chat(msg)
 
+    def parse_bot_command(self, message):
+        """Try to parse the message as a bot command, returning a tuple
+        of the command (without the bot command prefix) and a list of
+        any args. Any trailing whitespace in the message is removed."""
+
+        message = message.rstrip()
+        if not message.startswith(self.bot_command_prefix):
+            return (None, None)
+
+        message = message[len(self.bot_command_prefix):]
+        args = message.split(maxsplit=1)
+        command = args.pop(0)
+        if command.lower() == self.login_username.lower():
+            command = "bothelp"
+
+        if not command in self.manager.bot_commands:
+            return (None, None)
+
+        return (command, args)
+
+    def bot_command_allowed(self, user, command):
+        entry = self.manager.bot_commands[command]
+        if (entry["source_restriction"]
+            and not self.manager.user_is_admin(user)):
+            if entry["source_restriction"] == "admin":
+                return (False, "This command must be run by an admin")
+
+            if (entry["source_restriction"] == "user" and user != self.name):
+                return (False, "This command must be run from your own chat.")
+
+            if (entry["source_restriction"] == "bot"
+                and self.name != self.login_username):
+                return (False, "This command must be run from {}".format(
+                            self.bot_chat_link))
+
+        return (True, None)
+
+    def get_username(self, user):
+        return user
+
     @asyncio.coroutine
-    def read_bot_command(self, sender, message):
-        message = re.sub(r' +$', "", message)
-        orig_message = message
-        message = re.sub(r'^!{} *'.format(self.login_username), "", message,
-                         flags=re.I)
-        if not message:
-            command = "help"
-            args = []
-        else:
-            args = re.split(r' +', message)
-            command = args.pop(0).lower()
-        admin = self.manager.user_is_admin(sender)
-        if command == "help":
-            help_text = self.manager.conf["help_text"]
-            help_text = help_text.replace("\n", " ")
-            help_text = help_text.replace("%n", self.login_username)
-            yield from self.send_chat(help_text)
+    def run_bot_command(self, sender, command, args, orig_message):
+        """Attempt to run a bot command."""
+
+        if self.manager.single_user and not entry["single_user_allowed"]:
             return
 
-        if admin and args and args[0].startswith("@"):
+        allowed, reason = self.bot_command_allowed(sender, command)
+        if not allowed:
+            yield from self.send_chat(reason)
+            return
+
+        admin = self.manager.user_is_admin(sender)
+        if self.admins_can_target and admin and args and args[0].startswith("^"):
             target_user = args.pop(0).lower()[1:]
         else:
             target_user = sender
 
-        found = False
-        command_func = None
-        single_user = self.manager.conf.get("watch_username") is not None
-        for name, entry in self.manager.bot_commands.items():
-            if (name != command
-                or not entry["single_user_allowed"] and single_user
-                or entry["admin"] and not admin):
-                continue
+        entry = self.manager.bot_commands[command]
+        if not args and entry.get("arg_required"):
+            yield from self.send_command_usage(command)
+            return
 
-            if (args and not entry["arg_pattern"]
-                or len(args) > 1
-                or args and not re.match(entry["arg_pattern"], args[0])):
-                yield from self.send_command_usage(command)
-                return
-
-            command_func = entry["function"]
-            break
-
-        if not command_func:
-            yield from self.send_chat(
-                "Unknown command. Type !{} help for assistance".format(
-                    self.login_username))
+        if (args and
+            (not entry["arg_pattern"]
+             or len(args) > 1
+             or not re.match(entry["arg_pattern"], args[0]))):
+            yield from self.send_command_usage(command)
             return
 
         try:
-            if args:
-                yield from command_func(self, target_user, args[0])
-            else:
-                yield from command_func(self, target_user)
+            yield from entry["function"](self, target_user, *args)
 
         except Exception as e:
-            err_reason = type(e).__name__
-            if len(e.args):
-                err_reason = e.args[0]
-            _log.error("%s: Unable to handle bot command (watch user: %s, "
-                       "request user: %s): command: %s, error: %s",
-                       self.manager.service, self.watch_username, sender,
-                       orig_message, e.args[0])
+            self.log_exception(e, "unable to handle bot command"
+                    "(requester: {}, command: {})".format(sender, orig_message))
         else:
-            _log.info("%s: Did bot command (watch user: %s, request user: "
-                      "%s): %s", self.manager.service, self.watch_username,
-                      sender, orig_message)
+            _log.info("%s: Did bot command (source: %s, request user: "
+                      "%s): %s", self.manager.service, self.name, sender,
+                      orig_message)
 
     def message_needs_escape(self, message):
         """Check if the messages might get parsed by other chat bots and will
@@ -110,7 +151,23 @@ class ChatWatcher():
 
         """
 
-        return message[0] == "!" or message[0] == "_"
+        return message[0] == "!"
+
+    def handle_timeout(self):
+        current_time = time.time()
+        mconf = self.manager.conf
+        for timestamp in list(self.message_times):
+            if current_time - timestamp >= mconf["command_period"]:
+                self.message_times.remove(timestamp)
+        if len(self.message_times) >= mconf["command_limit"]:
+            _log.info("%s: Command ignored due to command limit (source: %s, "
+                      "requester: %s): %s",
+                      self.manager.service, self.name,
+                      sender, message)
+            return True
+
+        self.message_times.append(current_time)
+        return False
 
     @asyncio.coroutine
     def read_chat(self, sender, message):
@@ -119,48 +176,24 @@ class ChatWatcher():
         if not self.is_allowed_user(sender):
             return
 
-        bot_command = self.is_bot_command(message)
-        if (not bot_command
+        command, args = self.parse_bot_command(message)
+        if (not command
             and (not self.manager.dcss_manager.is_dcss_message(message)
                  or not self.user_allowed_dcss(sender))):
             return
 
-        current_time = time.time()
-        for timestamp in list(self.message_times):
-            if current_time - timestamp >= self.manager.conf["command_period"]:
-                self.message_times.remove(timestamp)
-        if len(self.message_times) >= self.manager.conf["command_limit"]:
-            _log.info("%s: Command ignored due to command limit (watch "
-                      "user: %s, requester: %s): %s", self.manager.service,
-                      self.watch_username, sender, message)
+        if self.handle_timeout():
             return
 
-        self.message_times.append(current_time)
-        if bot_command:
-            yield from self.read_bot_command(sender, message)
+        if command:
+            yield from self.run_bot_command(sender, command, args, message)
         else:
-            yield from self.manager.dcss_manager.read_message(
-                self, sender, message)
-
+            yield from self.manager.dcss_manager.read_message(self,
+                    self.get_username(sender), message)
 
 @asyncio.coroutine
-def bot_nick_command(source, target_user, nick=None):
-    """`!<bot-name> nick` chat command"""
-
-    user_db = source.manager.user_db
-    user_data = user_db.get_user_data(target_user)
-    if not nick:
-        if not user_data or not user_data["nick"]:
-            yield from source.send_chat(
-                "No nick for user {}".format(target_user))
-        else:
-            yield from source.send_chat(
-                "Nick for user {}: {}".format(target_user, user_data["nick"]))
-        return
-
-    if not user_data:
-        user_data = user_db.register_user(target_user)
-
-    user_db.set_user_field(target_user, "nick", nick)
-    yield from source.send_chat(
-        "Nick for user {} set to {}".format(target_user, nick))
+def bot_help_command(source, user):
+    help_text = source.manager.conf["help_text"]
+    help_text = help_text.replace("\n", " ")
+    help_text = help_text.replace("%n", source.login_username)
+    yield from source.send_chat(help_text)
