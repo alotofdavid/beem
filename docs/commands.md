@@ -12,11 +12,11 @@ spectators, since the bot will automatically watch that game.
 When you see beem in chat, type the following command to have beem
 automatically watch your games on the current server:
 
-    !beem subscribe
+    !subscribe
 
 To prevent beem from watching your games, type:
 
-    !beem unsubscribe
+    !unsubscribe
 
 ### Knowledge bot command examples
 
@@ -145,32 +145,22 @@ Use these commands from Webtiles chat to control beem. These commands can be
 run from the WebTiles chat of any game where beem is listening, including your
 own games.
 
-- `!beem subscribe`
+- `!subscribe`
 
   Have beem watch your games automatically whenever it sees them. You only need
   to run this command once, since beem will remember your subscription. You can
-  also run this command to resubscribe after having used the `!beem
-  unsubscribe` command, and there's no limit to resubscriptions.
+  also run this command to resubscribe after having used the `!unsubscribe`
+  command, and there's no limit to resubscriptions.
 
-- `!beem unsubscribe`
+- `!unsubscribe`
 
   Prevent beem from watching your games. beem will leave your game's chat after
-  you run this command. You can run `!beem subscribe` from any other game's
+  you run this command. You can run `!subscribe` from any other game's
   chat where beem is listening to resubscribe.
 
-- `!beem nick [<name>]`
-
-  Set the nick beem will use for you when making queries to Sequell. On
-  WebTiles, this is only useful if you play on multiple accounts and have set
-  your nick within Sequell using the `!nick` command. You can set your Sequell
-  nick in the [##crawl](http://webchat.freenode.net/?channels=##crawl) channel
-  on Freenode. If you only play on one WebTiles account, it's not necessary to
-  set your nick with beem, since it will use your current account name for
-  queries automatically.
-
-- `!beem player-only [on|off]`
+- `!player-only [on|off]`
 
   If spectators are spamming too many DCSS bot commands in your game's chat,
-  type `!beem player-only on` to have it only respond to you for these queries.
+  type `!player-only on` to have it only respond to you for these queries.
   You can toggle this setting on and off as much as you want. Note that beem
-  will still respond to anyone for the `!beem` control commands.
+  will still respond to anyone for the beem control commands.
