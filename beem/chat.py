@@ -50,7 +50,7 @@ class ChatWatcher():
         """Return the nick we have mapped for a given user. LomLobot has a
         special lookup, but for other bots it will be the chat name."""
 
-        return self.get_chat_name(user)
+        return re.sub("\s", "", self.get_chat_name(user))
 
     def get_chat_dcss_nicks(self, sender):
         """Return a set containing the nick mapping for all users in
