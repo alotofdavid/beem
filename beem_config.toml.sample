@@ -83,7 +83,7 @@ protocol_version = 1
 
 # To enable single user mode, set this field to a valid user name. The bot will
 # only watch the games of this user.
-# watch_username = ""
+# watch_player = ""
 
 # The variables command_limit and command_period control the rate of commands
 # (both bot and dcss) allowed in chat. If the condition is reached where the

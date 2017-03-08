@@ -128,7 +128,7 @@ class BeemConfig(Config):
                                   ["server_url", "protocol_version",
                                    "username", "password", "help_text"])
 
-        if self.get("watch_username"):
+        if self.get("watch_player"):
             self.webtiles["max_watched_subscribers"] = 1
             self.webtiles["max_game_idle"] = float("inf")
             self.webtiles["game_rewatch_timeout"] = float("inf")

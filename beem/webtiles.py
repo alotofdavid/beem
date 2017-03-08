@@ -300,7 +300,7 @@ class WebTilesManager():
         self.user_db = user_db
         self.dcss_manager = dcss_manager
         dcss_manager.managers["WebTiles"] = self
-        self.single_user = conf.get("watch_username") is not None
+        self.single_user = conf.get("watch_player") is not None
         self.bot_commands = bot_commands
 
         self.lobby = None
@@ -593,8 +593,8 @@ class WebTilesManager():
         queue["time_end"] = time.time()
 
     def can_watch_user(self, username):
-        if self.conf.get("watch_username"):
-            return username == self.conf["watch_username"]
+        if self.conf.get("watch_player"):
+            return username == self.conf["watch_player"]
 
         if self.conf.get("never_watch"):
             for u in self.conf["never_watch"]:
