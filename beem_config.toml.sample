@@ -17,9 +17,7 @@ port = 6667
 # Set to true to enable SSL support, and change the port field to an
 # ssl-enabled port.
 # use_ssl = true
-
-# IRC nick. If SASL is used, this can be different from the username below.
-# nick = ""
+# port = 6697
 
 # If you register the nick used for your bot on Freenode, define username and
 # password to have the bot log in with SASL. When using SASL, for security
@@ -28,14 +26,16 @@ port = 6667
 # username = ""
 # password = ""
 
+# IRC nick. If SASL is used, this can be different from the username below.
+# nick = ""
+
 # Chat messages matching these regular expressions anywhere in the message will
 # not be passed on to any IRC bot. You can add regular expression patterns to
-# this array to prevent users from running certain commands. Entries here apply
-# to messages from both WebTiles and Twitch.
+# this array to prevent users from running certain commands.
 # bad_patterns = []
 
 # Generally you won't want to change any of the remaining settings in the
-# dcss table, unless you want to different irc bots from the official ones.
+# dcss table, unless you want to different IRC bots from the official ones.
 
 [[dcss.bots]]
 nick = "Sequell"
@@ -44,21 +44,21 @@ nick = "Sequell"
 # forwarded to Sequell.
 patterns = ['^\?\?[^?]', '\?\?\?? *$', '^[qr]\?\?', '^\?/', '^![-.\w]+( |$)',
             '^&[-.\w]+( |$)', '^\.[-.\w]+( |$)', '^=[-.\w]+( |$)']
-use_relay = true
+has_sequell = true
 has_monster = false
 has_git = false
 
 [[dcss.bots]]
 nick = "Gretell"
 patterns = ['^@\?']
-use_relay = false
+has_sequell = false
 has_monster = true
 has_git = false
 
 [[dcss.bots]]
 nick = "Cheibriados"
 patterns = ['^%git', '^%([0-9]+\.[0-9]+)?\?']
-use_relay = false
+has_sequell = false
 has_monster = true
 has_git = true
 
@@ -97,9 +97,9 @@ command_period = 20
 help_text = """I'm a bot that sends commands to the DCSS IRC knowledge
 bots. For details, see
 https://github.com/gammafunk/beem/blob/master/docs/commands.md and to have me
-watch your games on this server, type: !%n subscribe"""
+watch your games on this server, type: !subscribe"""
 
-# The WebTiles settings below are only relevant if not using watch_username
+# The WebTiles settings below are only relevant if not using watch_player
 
 # Maximum number of subscribers the bot will watch on a server when not in
 # single user mode. This number is independent of connection reserved for the
@@ -129,7 +129,7 @@ min_autowatch_spectators = 3
 # If autowatch is enabled and this variable is defined, give a greeting
 # message when the bot first autowatches to a game. In this string, %n is
 # replaced with the bot name.
-greeting_text = "I am %n. For help, type: !%n help"
+greeting_text = "I am %n. For help, type: !%n"
 
 
 # =============================
