@@ -111,7 +111,7 @@ class IRCBot():
             ident["query_id"] = self.queue.pop(0)
             ident["type"] = "monster"
 
-        if self.conf["has_git"] and re.search(git_pattern, message):
+        elif self.conf["has_git"] and re.search(git_pattern, message):
             ident["query_id"] = self.queue.pop(0)
             ident["type"] = "git"
 
