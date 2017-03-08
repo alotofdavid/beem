@@ -25,28 +25,34 @@ class ChatWatcher():
         error_reason = type(e).__name__
         if e.args:
             error_reason = "{}: {}".format(error_reason, e.args[0])
-        _log.error("%s: In %s, %s: %s", self.manager.service,
-                self.describe_source(), error_msg, error_reason)
+        _log.error("%s: In %s, %s: %s", self.manager.service, self.describe(),
+                error_msg, error_reason)
 
-    def is_allowed_user(self, username):
+    def is_allowed_user(self, user):
         """Do we read commands at all from the given user? Ignore chat
         messages from ourself."""
 
-        return username != self.login_username
+        return user != self.login_user
 
     def user_allowed_dcss(self, user):
         """Return True if the user is allowed to execute dcss bot commands."""
 
         return True
 
-    def lookup_nick(self, username):
-        """Return the nick we have mapped for a given user. Returning
-        None for the player/streamer will cause no $p nick substitution
-        to occur."""
+    def get_chat_name(self, user):
+        """A shortened form of the user's name. Used by the bot to determine
+        the command name to respond for help purposes. Also used as the dcss
+        nick for Sequell queries."""
 
-        return username
+        return user
 
-    def get_chat_nicks(self, sender):
+    def get_dcss_nick(self, user):
+        """Return the nick we have mapped for a given user. LomLobot has a
+        special lookup, but for other bots it will be the chat name."""
+
+        return self.get_chat_name(user)
+
+    def get_chat_dcss_nicks(self, sender):
         """Return a set containing the nick mapping for all users in
         chat. Returning none will cause no $chat variable nick
         substitution to occur."""
@@ -76,7 +82,7 @@ class ChatWatcher():
         message = message[len(self.bot_command_prefix):]
         args = message.split(maxsplit=1)
         command = args.pop(0)
-        if command.lower() == self.login_username.lower():
+        if command.lower() == self.get_dcss_nick(self.login_user).lower():
             command = "bothelp"
 
         if not command in self.manager.bot_commands:
@@ -91,18 +97,16 @@ class ChatWatcher():
             if entry["source_restriction"] == "admin":
                 return (False, "This command must be run by an admin")
 
-            if (entry["source_restriction"] == "user" and user != self.name):
+            if (entry["source_restriction"] == "user"
+                and user != self.user):
                 return (False, "This command must be run from your own chat.")
 
             if (entry["source_restriction"] == "bot"
-                and self.name != self.login_username):
+                and self.user != self.login_user):
                 return (False, "This command must be run from {}".format(
-                            self.bot_chat_link))
+                            self.bot_source_desc))
 
         return (True, None)
-
-    def get_username(self, user):
-        return user
 
     @asyncio.coroutine
     def run_bot_command(self, sender, command, args, orig_message):
@@ -142,7 +146,7 @@ class ChatWatcher():
                     "(requester: {}, command: {})".format(sender, orig_message))
         else:
             _log.info("%s: Did bot command (source: %s, request user: "
-                      "%s): %s", self.manager.service, self.name, sender,
+                      "%s): %s", self.manager.service, self.describe(), sender,
                       orig_message)
 
     def message_needs_escape(self, message):
@@ -162,7 +166,7 @@ class ChatWatcher():
         if len(self.message_times) >= mconf["command_limit"]:
             _log.info("%s: Command ignored due to command limit (source: %s, "
                       "requester: %s): %s",
-                      self.manager.service, self.name,
+                      self.manager.service, self.describe(),
                       sender, message)
             return True
 
@@ -188,12 +192,12 @@ class ChatWatcher():
         if command:
             yield from self.run_bot_command(sender, command, args, message)
         else:
-            yield from self.manager.dcss_manager.read_message(self,
-                    self.get_username(sender), message)
+            yield from self.manager.dcss_manager.read_message(self, sender,
+                    message)
 
 @asyncio.coroutine
 def bot_help_command(source, user):
     help_text = source.manager.conf["help_text"]
     help_text = help_text.replace("\n", " ")
-    help_text = help_text.replace("%n", source.login_username)
+    help_text = help_text.replace("%n", source.get_chat_name(source.login_user))
     yield from source.send_chat(help_text)

@@ -47,12 +47,12 @@ class IRCBot():
         return False
 
     @asyncio.coroutine
-    def send_message(self, source, username, message):
-        query_id = self.manager.make_query_id(source, username)
+    def send_message(self, source, user, message):
+        query_id = self.manager.make_query_id(source, user)
 
         if self.conf["has_sequell"]:
-            message = self.prepare_sequell_message(source, username, query_id,
-                                                   message)
+            message = self.prepare_sequell_message(source, user, query_id,
+                    message)
         else:
             self.queue.append(query_id)
 
@@ -68,19 +68,18 @@ class IRCBot():
         prefix = id_format.format(query_id)
 
         # Hack to make $p get assigned to the player for Sequell purposes.
-        source_nick = source.lookup_nick(source.name)
-        if source_nick:
+        if source.user:
+            source_nick = source.get_dcss_nick(source.user)
             message = re.sub(r"\$p(?=\W|$)|\$\{p\}", source_nick, message)
 
-        # Hack to make $chat get assigned to the |-separated list of chat users.
-        chat_nicks = source.get_chat_nicks(sender)
+        # Hack to make $chat get assigned to the |-separated list of chat
+        # nicks.
+        chat_nicks = source.get_chat_dcss_nicks(sender)
         if chat_nicks:
             message = re.sub(r"\$chat(?=\W|$)|\$\{chat\}",
                     "@" + "|@".join(chat_nicks), message)
 
-        sender_nick = source.lookup_nick(sender)
-        if not sender_nick:
-            sender_nick = sender
+        sender_nick = source.get_dcss_nick(sender)
         message = "!RELAY -nick {} -prefix {} -n 1 {}".format(sender_nick,
                 prefix, message)
         return message
@@ -290,7 +289,7 @@ class DCSSManager():
         nick = re.sub(r"([^!]+)!.*", r"\1", event.source)
         self.messages.append((nick, message))
 
-    def make_query_id(self, source, username):
+    def make_query_id(self, source, user):
         new_id = None
         current_time = time.time()
         last_query_age = None
@@ -315,7 +314,7 @@ class DCSSManager():
             raise Exception("too many queries in queue")
 
         self.queries[new_id] = {"source_ident" : source.get_source_ident(),
-                                "requester" : username,
+                                "requester" : user,
                                 "time" : current_time}
         return new_id
 
@@ -390,8 +389,9 @@ class DCSSManager():
                     return
 
                 except Exception as e:
-                    self.log_exception(e, "Unable to relay to {} for {} "
-                            "(message: {})".format(nick, source.name, message))
+                    self.log_exception(e, "Unable to relay to {} from {} "
+                            "on behalf of {} (message: {})".format(nick,
+                                source.describe(), query["requester"], message))
                     raise
 
             # Sequell returns /me literally instead of using an IRC action, so
@@ -405,7 +405,7 @@ class DCSSManager():
         yield from source.send_chat(message, message_type)
 
     @asyncio.coroutine
-    def read_message(self, source, username, message):
+    def read_message(self, source, user, message):
         dest_bot = None
         for bot_nick, bot in self.bots.items():
             if bot.is_bot_message(message):
@@ -416,16 +416,15 @@ class DCSSManager():
             raise Exception("Unknown bot message: {}".format(message))
 
         try:
-            yield from dest_bot.send_message(source, username, message)
+            yield from dest_bot.send_message(source, user, message)
         except Exception as e:
             self.log_exception(e, "Unable to send message from {} to {} "
-                    "(requester: {}, message: {})".format(
-                        source.describe_source(), dest_bot.conf["nick"],
-                        username, message))
+                    "(requester: {}, message: {})".format(source.describe(),
+                        dest_bot.conf["nick"], user, message))
 
         else:
             _log.info("DCSS: Sent %s message (source: %s, requester: "
-                      "%s): %s", dest_bot.conf["nick"], source.name, username,
+                      "%s): %s", dest_bot.conf["nick"], source.describe(), user,
                       message)
 
     def is_bad_pattern(self, message):
