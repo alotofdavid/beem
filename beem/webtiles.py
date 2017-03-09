@@ -216,7 +216,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         bots = {"lomlobot"}
         return user.lower() in bots
 
-    def get_chat_nicks(self, sender):
+    def get_chat_dcss_nicks(self, sender):
         nicks = set()
         for username in self.spectators:
             if not self.user_is_bot(username):
