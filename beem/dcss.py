@@ -319,6 +319,9 @@ class DCSSManager():
         return new_id
 
     def get_result_ident(self, nick, message):
+        """Get the result details from the message. If the bot's handler
+        doesn't have result details, assume that the details are the same as
+        the last returned result."""
         result_ident = self.bots[nick].get_result_ident(message)
         if result_ident is None:
             result_ident = self.last_result_ident
@@ -330,6 +333,8 @@ class DCSSManager():
         return result_ident
 
     def get_query_result(self, nick, message):
+        """Find the query details in our queue based on the query ID for the
+        result determined by the bot handler."""
         ident = self.get_result_ident(nick, message)
         if not ident:
             return
@@ -337,6 +342,9 @@ class DCSSManager():
         if (self.last_result_ident
             and self.last_result_ident["query_id"] is ident["query_id"]):
             return (self.last_result_query, self.last_result_ident)
+
+        if not ident["query_id"] in self.queries:
+            return
 
         query = self.queries[ident["query_id"]]
         del self.queries[ident["query_id"]]
