@@ -423,9 +423,8 @@ class DCSSManager():
                         dest_bot.conf["nick"], user, message))
 
         else:
-            _log.info("DCSS: Sent %s message (source: %s, requester: "
-                      "%s): %s", dest_bot.conf["nick"], source.describe(), user,
-                      message)
+            _log.debug("DCSS: Sent %s message (source: %s, requester: %s): %s",
+                    dest_bot.conf["nick"], source.describe(), user, message)
 
     def is_bad_pattern(self, message):
         if not self.conf.get("bad_patterns"):
