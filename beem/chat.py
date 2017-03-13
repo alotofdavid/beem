@@ -76,7 +76,8 @@ class ChatWatcher():
         any args. Any trailing whitespace in the message is removed."""
 
         message = message.rstrip()
-        if not message.startswith(self.bot_command_prefix):
+        if (not message.startswith(self.bot_command_prefix)
+                or message == self.bot_command_prefix):
             return (None, None)
 
         message = message[len(self.bot_command_prefix):]
