@@ -39,11 +39,16 @@ class ChatWatcher():
 
         return True
 
-    def get_chat_name(self, user):
-        """A shortened form of the user's name. Used by the bot to determine
-        the command name to respond for help purposes."""
+    def get_chat_name(self, user, sanitize=False):
+        """A shortened form of the user's name. If `sanitize` is True, all
+        chars that are not alphanumeric, underscore, or hyphen are removed.
+        Used by the bot to determine the command name to respond for help
+        purposes."""
 
-        return user
+        if sanitize:
+            return re.sub('[^A-Za-z0-9_-]', '', user)
+        else:
+            return user
 
     def get_dcss_nick(self, user):
         """Return the nick we have mapped for a given user."""
@@ -80,8 +85,8 @@ class ChatWatcher():
 
         message = message[len(self.bot_command_prefix):]
         args = message.split(maxsplit=1)
-        command = args.pop(0)
-        if command.lower() == self.get_dcss_nick(self.login_user).lower():
+        command = args.pop(0).lower()
+        if command == self.get_chat_name(self.login_user, True).lower():
             command = "bothelp"
 
         if not command in self.manager.bot_commands:
