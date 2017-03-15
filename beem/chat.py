@@ -41,16 +41,14 @@ class ChatWatcher():
 
     def get_chat_name(self, user):
         """A shortened form of the user's name. Used by the bot to determine
-        the command name to respond for help purposes. Also used as the dcss
-        nick for Sequell queries."""
+        the command name to respond for help purposes."""
 
         return user
 
     def get_dcss_nick(self, user):
-        """Return the nick we have mapped for a given user. LomLobot has a
-        special lookup, but for other bots it will be the chat name."""
+        """Return the nick we have mapped for a given user."""
 
-        return re.sub("\s", "", self.get_chat_name(user))
+        return user
 
     def get_chat_dcss_nicks(self, sender):
         """Return a set containing the nick mapping for all users in
