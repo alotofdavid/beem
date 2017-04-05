@@ -738,36 +738,36 @@ db_fields = [("subscription", 0), ("player_only", 0)]
 # WebTiles bot commands
 bot_commands = {
     "bothelp" : {
-        "arg_pattern" : None,
-        "arg_description" : None,
+        "args" : None,
         "single_user_allowed" : True,
         "source_restriction" : None,
         "function" : bot_help_command,
     },
     "status" : {
-        "arg_pattern" : None,
-        "arg_description" : None,
+        "args" : None,
         "single_user_allowed" : True,
         "source_restriction" : "admin",
         "function" : bot_status_command,
     },
     "subscribe" : {
-        "arg_pattern" : None,
-        "arg_description" : None,
+        "args" : None,
         "single_user_allowed" : False,
         "source_restriction" : None,
         "function" : bot_subscribe_command,
     },
     "unsubscribe" : {
-        "arg_pattern" : None,
-        "arg_description" : None,
+        "args" : None,
         "single_user_allowed" : False,
         "source_restriction" : None,
         "function" : bot_unsubscribe_command,
     },
     "player-only" : {
-        "arg_pattern" : r"^(on|off)$",
-        "arg_description" : "on|off",
+        "args" : [
+            {
+                "pattern" : r"(on|off)$",
+                "description" : "on|off",
+                "required" : False
+            } ],
         "single_user_allowed" : True,
         "source_restriction" : "user",
         "function" : bot_player_only_command,

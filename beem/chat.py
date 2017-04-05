@@ -19,7 +19,7 @@ class ChatWatcher():
         super().__init__(*args, **kwargs)
         self.message_times = []
         self.bot_command_prefix = '!'
-        self.admins_can_target = True
+        self.admin_target_prefix = "@"
 
     def log_exception(self, e, error_msg):
         error_reason = type(e).__name__
@@ -65,10 +65,11 @@ class ChatWatcher():
     @asyncio.coroutine
     def send_command_usage(self, command):
         msg = "Usage: {}{}".format(self.bot_command_prefix, command)
-        command_entry = self.manager.bot_commands[command]
-        if command_entry["arg_description"]:
-            arg_desc = command_entry["arg_description"]
-            if not command_entry.get("arg_required"):
+        entry = self.manager.bot_commands[command]
+        entry_args = entry["args"] if entry["args"] else []
+        for a in entry_args:
+            arg_desc = a["description"]
+            if not a["required"]:
                 arg_desc = "[{}]".format(arg_desc)
             msg += " {}".format(arg_desc)
         yield from self.send_chat(msg)
@@ -92,6 +93,9 @@ class ChatWatcher():
         if not command in self.manager.bot_commands:
             return (None, None)
 
+        entry = self.manager.bot_commands[command]
+        if args and entry["args"] is not None:
+            args = args[0].split(maxsplit=len(entry["args"]) - 1)
         return (command, args)
 
     def bot_command_allowed(self, user, command):
@@ -125,20 +129,31 @@ class ChatWatcher():
             return
 
         admin = self.manager.user_is_admin(sender)
-        if self.admins_can_target and admin and args and args[0].startswith("^"):
-            target_user = args.pop(0).lower()[1:]
+        if admin and args and args[0].startswith(self.admin_target_prefix):
+            target_user = args.pop(0)[len(self.admin_target_prefix):]
+            if not target_user:
+                yield from self.send_command_usage(command)
+                return
+
         else:
             target_user = sender
 
         entry = self.manager.bot_commands[command]
-        if not args and entry.get("arg_required"):
-            yield from self.send_command_usage(command)
-            return
+        valid = True
+        args_left = len(args)
+        entry_args = entry["args"] if entry["args"] else []
+        for i, a in enumerate(entry_args):
+            if a["required"] and args_left == 0:
+                valid = False
+                break
 
-        if (args and
-            (not entry["arg_pattern"]
-             or len(args) > 1
-             or not re.match(entry["arg_pattern"], args[0]))):
+            if args_left > 0 and not re.match(a["pattern"], args[i]):
+                valid = False
+                break
+
+            args_left -= 1
+
+        if not valid or args_left > 0:
             yield from self.send_command_usage(command)
             return
 
