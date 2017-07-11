@@ -439,7 +439,11 @@ class WebTilesManager():
             self.autowatch = GameConnection(self, player, game_id)
             self.autowatch.task = ensure_future(self.autowatch.start())
         else:
-            yield from self.autowatch.send_watch_game(player, game_id)
+            try:
+                yield from self.autowatch.send_watch_game(player, game_id)
+            except Exception as e:
+                yield from self.stop_connection(self.autowatch)
+
 
     @asyncio.coroutine
     def check_current_autowatch(self):
