@@ -87,7 +87,9 @@ class ChatWatcher():
         message = message[len(self.bot_command_prefix):]
         args = message.split(maxsplit=1)
         command = args.pop(0).lower()
-        if command == self.get_chat_name(self.login_user, True).lower():
+        # Make !<bot-name> and !help aliases for !bothelp.
+        if (command == self.get_chat_name(self.login_user, True).lower()
+            or command == "help"):
             command = "bothelp"
 
         if not command in self.manager.bot_commands:
