@@ -159,6 +159,9 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         return self.player
 
     def describe(self):
+        if not self.player:
+            return "chat (undefined player)"
+
         name = self.player
         if name.lower().endswith('s'):
             name = name + "'"
