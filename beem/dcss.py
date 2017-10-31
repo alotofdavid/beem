@@ -230,7 +230,7 @@ class DCSSManager():
                 self.reactor.process_once()
             except Exception as e:
                 self.log_exception(e, "Error reading IRC connection")
-                yield from self.disconnect()
+                self.disconnect()
 
             for m in list(self.messages):
                 nick, message = m
