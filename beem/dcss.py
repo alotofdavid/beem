@@ -551,6 +551,8 @@ class ServerConnection(irc.client.ServerConnection):
 
         self.send_raw("AUTHENTICATE {}".format(authdata.decode()))
 
+# For unrecognized byte sequences, use a replacement character.
+ServerConnection.buffer_class.errors = 'replace'
 
 class Reactor(irc.client.Reactor):
     """The Reactor class from irc.client that uses our modified ServerConnection
