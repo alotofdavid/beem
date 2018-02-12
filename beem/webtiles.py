@@ -143,7 +143,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         self.admins_can_target = True
         self.bot_source_desc = "{}'s WebTiles chat".format(self.login_user)
         if manager.conf.get("greeting_text"):
-            user_data = manager.user_db.get_user_data(player)
+            user_data = manager.bot_db.get_user_data(player)
             if user_data and user_data["subscription"] > 0:
                 self.need_greeting = False
             else:
@@ -232,7 +232,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         if self.manager.user_is_admin(user):
             return True
 
-        user_data = self.manager.user_db.get_user_data(self.player)
+        user_data = self.manager.bot_db.get_user_data(self.player)
         if user_data and user_data["player_only"]:
             return user == self.player
 
@@ -297,10 +297,10 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
 
 
 class WebTilesManager():
-    def __init__(self, conf, user_db, dcss_manager):
+    def __init__(self, conf, bot_db, dcss_manager):
         self.service = "WebTiles"
         self.conf = conf
-        self.user_db = user_db
+        self.bot_db = bot_db
         self.dcss_manager = dcss_manager
         dcss_manager.managers["WebTiles"] = self
         self.single_user = conf.get("watch_player") is not None
@@ -608,7 +608,7 @@ class WebTilesManager():
                 if u.lower() == username.lower():
                     return False
 
-        user_data = self.user_db.get_user_data(username)
+        user_data = self.bot_db.get_user_data(username)
         if user_data and user_data["subscription"] < 0:
             return False
 
@@ -649,7 +649,7 @@ class WebTilesManager():
         return False
 
     def user_is_subscribed(self, username):
-        user_data = self.user_db.get_user_data(username)
+        user_data = self.bot_db.get_user_data(username)
         return user_data and user_data["subscription"] > 0
 
 
@@ -657,17 +657,17 @@ class WebTilesManager():
 def bot_subscribe_command(source, username):
     """!subscribe chat command"""
 
-    user_db = source.manager.user_db
-    user_data = user_db.get_user_data(username)
+    bot_db = source.manager.bot_db
+    user_data = bot_db.get_user_data(username)
     if not user_data:
-        user_data = user_db.register_user(username)
+        user_data = bot_db.register_user(username)
 
     if user_data["subscription"] == 1:
         yield from source.send_chat(
             "User {} is already subscribed".format(username))
         return
 
-    user_db.set_user_field(username, "subscription", 1)
+    bot_db.set_user_field(username, "subscription", 1)
     yield from source.send_chat(
         "Subscribed. I will now watch all games of user {}".format(username))
 
@@ -675,17 +675,17 @@ def bot_subscribe_command(source, username):
 def bot_unsubscribe_command(source, username):
     """!unsubscribe chat command"""
 
-    user_db = source.manager.user_db
-    user_data = user_db.get_user_data(username)
+    bot_db = source.manager.bot_db
+    user_data = bot_db.get_user_data(username)
     if not user_data:
-        user_data = user_db.register_user(username)
+        user_data = bot_db.register_user(username)
 
     if user_data["subscription"] == -1:
         yield from source.send_chat(
             "User {} is already unsubscribed".format(username))
         return
 
-    user_db.set_user_field(username, "subscription", -1)
+    bot_db.set_user_field(username, "subscription", -1)
     msg = "Unsubscribed. I will no longer watch games of user {}.".format(
         username)
     # We'll be leaving the chat of this source.
@@ -722,9 +722,10 @@ def bot_player_only_command(source, username, state=None):
     """!player-only chat command"""
 
     mgr = source.manager
-    user_data = mgr.user_db.get_user_data(username)
+    user_data = mgr.bot_db.get_user_data(username)
+
     if not user_data:
-        user_data = mgr.user_db.register_user(username)
+        user_data = mgr.bot_db.register_user(username)
 
     if state is None:
         state_desc = "on" if user_data["player_only"] else "off"
@@ -734,13 +735,34 @@ def bot_player_only_command(source, username, state=None):
         return
 
     state_val = 1 if state == "on" else 0
-    mgr.user_db.set_user_field(username, "player_only", state_val)
+
+    if int(user_data["player_only"]) == state_val:
+        raise BotCommandException("Player-only responses for user {} already "
+                "set to {}".format(username, state))
+
+    mgr.bot_db.set_user_field(username, "player_only", state_val)
+
     yield from source.send_chat(
         "Player-only responses to bot commands for user {} set to {}".format(
             username, state))
 
-# Fields names and default values in the WebTiles user DB.
-db_fields = [("subscription", 0), ("player_only", 0)]
+# Fields names and default values in the WebTiles DB.
+db_tables = {
+        "webtiles_users" : [
+            {"name" : "username",
+             "type" : "text",
+             "primary" : True,
+            },
+            {"name" : "subscription",
+             "type" : "integer",
+             "default" : 0
+            },
+            {"name" : "player_only",
+             "type" : "integer",
+             "default" : 0
+            },
+        ],
+}
 
 # WebTiles bot commands
 bot_commands = {
