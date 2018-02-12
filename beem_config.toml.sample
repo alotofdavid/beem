@@ -2,8 +2,8 @@
 # beem configuration file
 # =======================
 
-# Sqlite3 user database file.
-user_db = "user_data.db3"
+# Sqlite3 database file.
+db_file = "beem_data.db3"
 
 
 # =========================

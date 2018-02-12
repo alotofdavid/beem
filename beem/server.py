@@ -22,8 +22,8 @@ import webtiles
 
 from .dcss import DCSSManager
 from .config import BeemConfig
-from .webtiles import WebTilesManager, db_fields
-from .userdb import UserDB
+from .webtiles import WebTilesManager, db_tables
+from .botdb import BotDB
 from .version import version
 
 ## Will be configured by beem_server after the config is loaded.
@@ -58,27 +58,30 @@ class BeemServer:
         self.load_webtiles()
 
     def load_webtiles(self):
-        user_db = UserDB(self.conf.user_db, "webtiles_users", db_fields)
+        bot_db = BotDB(self.conf.db_file, db_tables, "webtiles_users")
+
         try:
-            user_db.load_db()
+            bot_db.load_db()
+
         except Exception as e:
             err_reason = type(e).__name__
             if len(e.args):
                 err_reason = e.args[0]
-            _log.critical("Unable to load user DB: %s", err_reason)
+            _log.critical("unable to load DB file %s: %s", self.conf.db_file,
+                    err_reason)
             sys.exit(1)
 
         wtconf = self.conf.webtiles
-        self.webtiles_manager = WebTilesManager(wtconf, user_db,
+        self.webtiles_manager = WebTilesManager(wtconf, bot_db,
                                                 self.dcss_manager)
 
         if wtconf.get("watch_username"):
-            user_data = user_db.get_user_data(wtconf["watch_username"])
+            user_data = bot_db.get_user_data(wtconf["watch_username"])
             if not user_data:
-                user_data = user_db.register_user(wtconf["watch_username"])
+                user_data = bot_db.register_user(wtconf["watch_username"])
             if not user_data["subscription"]:
-                user_db.set_user_field(wtconf["watch_username"],
-                                       "subscription", 1)
+                bot_db.set_user_field(wtconf["watch_username"], "subscription",
+                        1)
 
     def start(self):
         """Start the server, set up the event loop and signal handlers,
