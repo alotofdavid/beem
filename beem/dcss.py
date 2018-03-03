@@ -14,7 +14,9 @@ import os
 import signal
 import re
 import ssl
+import sys
 import time
+import traceback
 
 _log = logging.getLogger()
 
@@ -137,11 +139,11 @@ class DCSSManager():
         self.reactor.add_global_handler("all_events", self.dispatcher, -10)
         self.server = self.reactor.server()
 
-    def log_exception(self, e, error_msg):
-        error_reason = type(e).__name__
-        if e.args:
-            error_reason = "{}: {}".format(error_reason, e.args[0])
-        _log.error("DCSS: %s: %s", error_msg, error_reason)
+    def log_exception(self, error_msg):
+        exc_type, exc_value, exc_tb = sys.exc_info()
+        _log.error("DCSS: %s", error_msg)
+        _log.error("".join(traceback.format_exception(
+            exc_type, exc_value, exc_tb)))
 
     def ready(self):
         if not self.server.is_connected():
@@ -193,8 +195,8 @@ class DCSSManager():
 
         try:
             self.server.disconnect()
-        except Exception as e:
-            self.log_exception(e, "Error when disconnecting IRC")
+        except Exception:
+            self.log_exception("Error when disconnecting IRC")
 
     def is_connected(self):
         # We check server.authenticated to make sure connect() is called once
@@ -221,15 +223,15 @@ class DCSSManager():
                     yield from self.connect()
                 except asyncio.CancelledError:
                     return
-                except Exception as e:
-                    self.log_exception(e, "Unable to connect IRC")
+                except Exception:
+                    self.log_exception("Unable to connect IRC")
 
                 tried_connect = True
 
             try:
                 self.reactor.process_once()
-            except Exception as e:
-                self.log_exception(e, "Error reading IRC connection")
+            except Exception:
+                self.log_exception("Error reading IRC connection")
                 self.disconnect()
 
             for m in list(self.messages):
@@ -396,9 +398,9 @@ class DCSSManager():
                             query["requester"], message)
                     return
 
-                except Exception as e:
-                    self.log_exception(e, "Unable to relay to {} from {} "
-                            "on behalf of {} (message: {})".format(nick,
+                except Exception:
+                    self.log_exception("Unable to relay to {} from {} on "
+                            "behalf of {} (message: {})".format(nick,
                                 source.describe(), query["requester"], message))
                     raise
 
@@ -425,8 +427,8 @@ class DCSSManager():
 
         try:
             yield from dest_bot.send_message(source, user, message)
-        except Exception as e:
-            self.log_exception(e, "Unable to send message from {} to {} "
+        except Exception:
+            self.log_exception("Unable to send message from {} to {} "
                     "(requester: {}, message: {})".format(source.describe(),
                         dest_bot.conf["nick"], user, message))
 

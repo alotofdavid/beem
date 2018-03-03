@@ -9,6 +9,8 @@ else:
 import logging
 import re
 import time
+import traceback
+import sys
 
 _log = logging.getLogger()
 
@@ -21,12 +23,14 @@ class ChatWatcher():
         self.bot_command_prefix = '!'
         self.admin_target_prefix = "@"
 
-    def log_exception(self, e, error_msg):
-        error_reason = type(e).__name__
-        if e.args:
-            error_reason = "{}: {}".format(error_reason, e.args[0])
-        _log.error("%s: In %s, %s: %s", self.manager.service, self.describe(),
-                error_msg, error_reason)
+    def log_exception(self, error_msg):
+        """Log an exception message with a stacktrace."""
+
+        exc_type, exc_value, exc_tb = sys.exc_info()
+        _log.error("%s: In %s, %s:", self.manager.service, self.describe(),
+                error_msg)
+        _log.error("".join(traceback.format_exception(
+            exc_type, exc_value, exc_tb)))
 
     def is_allowed_user(self, user):
         """Do we read commands at all from the given user? Ignore chat
@@ -162,8 +166,8 @@ class ChatWatcher():
         try:
             yield from entry["function"](self, target_user, *args)
 
-        except Exception as e:
-            self.log_exception(e, "unable to handle bot command"
+        except Exception:
+            self.log_exception("unable to handle bot command"
                     "(requester: {}, command: {})".format(sender, orig_message))
         else:
             _log.info("%s: Did bot command (source: %s, request user: "

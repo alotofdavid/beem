@@ -18,6 +18,7 @@ import logging
 import os
 import signal
 import sys
+import traceback
 import webtiles
 
 from .dcss import DCSSManager
@@ -47,15 +48,22 @@ class BeemServer:
 
         try:
             self.conf.load()
-        except Exception as e:
-            err_reason = type(e).__name__
-            if len(e.args):
-                err_reason = e.args[0]
-            _log.critical(err_reason)
-            sys.exit(1)
+
+        except Exception:
+            self.critical_error("Error loading configuration file"
+                    " {}:".format(self.conf.path))
 
         self.dcss_manager = DCSSManager(self.conf.dcss)
         self.load_webtiles()
+
+    def critical_error(self, error_msg):
+        _log.critical("Server error: %s", error_msg)
+
+        exc_type, exc_value, exc_tb = sys.exc_info()
+        _log.error("".join(traceback.format_exception(
+            exc_type, exc_value, exc_tb)))
+
+        sys.exit(1)
 
     def load_webtiles(self):
         bot_db = BotDB(self.conf.db_file, db_tables, "webtiles_users")
@@ -63,13 +71,9 @@ class BeemServer:
         try:
             bot_db.load_db()
 
-        except Exception as e:
-            err_reason = type(e).__name__
-            if len(e.args):
-                err_reason = e.args[0]
-            _log.critical("unable to load DB file %s: %s", self.conf.db_file,
-                    err_reason)
-            sys.exit(1)
+        except Exception:
+            self.critical_error(
+                    "unable to load DB file {}:".format(self.conf.db_file))
 
         wtconf = self.conf.webtiles
         self.webtiles_manager = WebTilesManager(wtconf, bot_db,

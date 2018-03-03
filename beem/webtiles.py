@@ -10,7 +10,9 @@ import logging
 import os
 import re
 import signal
+import sys
 import time
+import traceback
 import webtiles
 from websockets.exceptions import ConnectionClosed
 
@@ -54,8 +56,8 @@ class ConnectionHandler():
             except asyncio.CancelledError:
                 return
 
-            except Exception as e:
-                self.log_exception(e, "unable to send ping")
+            except Exception:
+                self.log_exception("unable to send ping")
                 yield from self.manager.stop_connection(self)
                 return
 
@@ -71,8 +73,8 @@ class ConnectionHandler():
             try:
                 yield from self.connect()
 
-            except Exception as e:
-                self.log_exception(e, "unable to connect")
+            except Exception:
+                self.log_exception("unable to connect")
                 yield from asyncio.sleep(_RETRY_CONNECTION_WAIT)
                 ensure_future(self.manager.stop_connection(self))
                 return
@@ -87,8 +89,8 @@ class ConnectionHandler():
                 messages = yield from self.read()
             except asyncio.CancelledError:
                 return
-            except Exception as e:
-                self.log_exception(e, "unable to read WebSocket")
+            except Exception:
+                self.log_exception("unable to read WebSocket")
                 ensure_future(self.manager.stop_connection(self))
                 return
 
@@ -100,8 +102,8 @@ class ConnectionHandler():
                     yield from self.handle_message(message)
                 except asyncio.CancelledError:
                     return
-                except Exception as e:
-                    self.log_exception(e, "unable to handle WebSocket message")
+                except Exception:
+                    self.log_exception("unable to handle WebSocket message")
                     ensure_future(self.manager.stop_connection(self))
                     return
 
@@ -119,12 +121,11 @@ class LobbyConnection(webtiles.WebTilesConnection, ConnectionHandler):
             websocket_url=self.manager.conf["server_url"],
             protocol_version=self.manager.conf["protocol_version"])
 
-    def log_exception(self, e, error_msg):
-        error_reason = type(e).__name__
-        if e.args:
-            error_reason = "{}: {}".format(error_reason, e.args[0])
-        _log.error("WebTiles: In lobby connection, %s: %s", error_msg,
-                   error_reason)
+    def log_exception(self, error_msg):
+        exc_type, exc_value, exc_tb = sys.exc_info()
+        _log.error("WebTiles: In lobby connection, %s: ", error_msg)
+        _log.error("".join(traceback.format_exception(
+            exc_type, exc_value, exc_tb)))
 
 
 class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
@@ -255,8 +256,9 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
 
         try:
             yield from self.send({"msg" : "chat_msg", "text" : message})
+
         except Exception as e:
-            self.log_exception(e, "unable to send chat message {}".format(
+            self.log_exception("unable to send chat message {}".format(
                 message))
             ensure_future(self.manager.stop_connection(self))
             return
@@ -361,8 +363,8 @@ class WebTilesManager():
 
         try:
             yield from conn.disconnect()
-        except Exception as e:
-            conn.log_exception(e, "error attempting disconnect")
+        except Exception:
+            conn.log_exception("error attempting disconnect")
 
     @asyncio.coroutine
     def try_new_connection(self, player, game_id):
