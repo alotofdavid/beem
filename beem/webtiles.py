@@ -16,7 +16,8 @@ import traceback
 import webtiles
 from websockets.exceptions import ConnectionClosed
 
-from .chat import ChatWatcher, bot_help_command
+from .chat import ChatWatcher, BotCommandException, bot_help_command
+from .chat import pluralize_name
 from .version import version as Version
 
 _log = logging.getLogger()
@@ -137,12 +138,13 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
     def __init__(self, manager, player, game_id, *args, **kwargs):
         super().__init__(manager, *args, **kwargs)
 
-        self.time_since_request = None
-        self.need_greeting = False
         self.player = player
         self.game_id = game_id
-        self.admins_can_target = True
-        self.bot_source_desc = "{}'s WebTiles chat".format(self.login_user)
+        self.source_type_desc = "chat"
+
+        self.time_since_request = None
+
+        self.need_greeting = False
         if manager.conf.get("greeting_text"):
             user_data = manager.bot_db.get_user_data(player)
             if user_data and user_data["subscription"] > 0:
@@ -161,14 +163,10 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
 
     def describe(self):
         if not self.player:
-            return "chat (undefined player)"
+            return "{} (undefined player)"
 
-        name = self.player
-        if name.lower().endswith('s'):
-            name = name + "'"
-        else:
-            name = name + "'s"
-        return "{} chat".format(name)
+        return "{} {}".format(pluralize_name(self.player),
+                self.source_type_desc)
 
     def connect(self):
         yield from super().connect(self.manager.conf["server_url"],
@@ -215,27 +213,44 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         yield from self.send_chat(greeting)
         self.need_greeting = False
 
-    def user_is_bot(self, user):
-        # XXX Probably move this to config entry.
-        bots = {"lomlobot"}
-        return user.lower() in bots
+    def user_is_admin(self, user):
+        """Return True if the user is a bot admin."""
 
-    def get_chat_dcss_nicks(self, sender):
-        nicks = set()
-        for username in self.spectators:
-            if not self.user_is_bot(username):
-                nicks.add(username)
-        return nicks
+        if not self.manager.conf.get('admins'):
+            return False
 
-    def user_allowed_dcss(self, user):
-        """Return True if the user is allowed to execute dcss bot commands."""
+        lname = user.lower()
+        for u in self.manager.conf['admins']:
+            if u.lower() == lname:
+                return True
 
-        if self.manager.user_is_admin(user):
+        return False
+
+    def user_is_ignored(self, user):
+        """Return True if the user is ignored by our configuration."""
+
+        if not self.manager.conf.get('ignored_users'):
+            return False
+
+        lname = user.lower()
+        for u in self.manager.conf['ignored_users']:
+            if u.lower() == lname:
+                return True
+
+        return False
+
+    def is_allowed_user(self, user):
+        """Return True if the user is allowed to execute bot commands."""
+
+        if self.user_is_admin(user):
             return True
+
+        if self.user_is_ignored(user):
+            return False
 
         user_data = self.manager.bot_db.get_user_data(self.player)
         if user_data and user_data["player_only"]:
-            return user == self.player
+            return user.lower() == self.player.lower()
 
         return True
 
@@ -300,13 +315,14 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
 
 class WebTilesManager():
     def __init__(self, conf, bot_db, dcss_manager):
-        self.service = "WebTiles"
         self.conf = conf
         self.bot_db = bot_db
         self.dcss_manager = dcss_manager
+        self.bot_commands = bot_commands
+
+        self.service = "WebTiles"
         dcss_manager.managers["WebTiles"] = self
         self.single_user = conf.get("watch_player") is not None
-        self.bot_commands = bot_commands
 
         self.lobby = None
         self.autowatch_candidate = None
@@ -638,18 +654,6 @@ class WebTilesManager():
 
         return True
 
-    def user_is_admin(self, user):
-        """Return True if the user is a beem admin for the given service."""
-
-        admins = self.conf.get("admins")
-        if not admins:
-            return False
-
-        for u in admins:
-            if u.lower() == user.lower():
-                return True
-        return False
-
     def user_is_subscribed(self, username):
         user_data = self.bot_db.get_user_data(username)
         return user_data and user_data["subscription"] > 0
@@ -665,9 +669,8 @@ def bot_subscribe_command(source, username):
         user_data = bot_db.register_user(username)
 
     if user_data["subscription"] == 1:
-        yield from source.send_chat(
-            "User {} is already subscribed".format(username))
-        return
+        raise BotCommandException("User {} is already subscribed".format(
+            username))
 
     bot_db.set_user_field(username, "subscription", 1)
     yield from source.send_chat(
@@ -683,9 +686,8 @@ def bot_unsubscribe_command(source, username):
         user_data = bot_db.register_user(username)
 
     if user_data["subscription"] == -1:
-        yield from source.send_chat(
-            "User {} is already unsubscribed".format(username))
-        return
+        raise BotCommandException("User {} is already unsubscribed".format(
+            username))
 
     bot_db.set_user_field(username, "subscription", -1)
     msg = "Unsubscribed. I will no longer watch games of user {}.".format(
@@ -769,38 +771,29 @@ db_tables = {
 # WebTiles bot commands
 bot_commands = {
     "bothelp" : {
-        "args" : None,
-        "single_user_allowed" : True,
-        "source_restriction" : None,
+        "unlogged" : True,
         "function" : bot_help_command,
     },
     "status" : {
-        "args" : None,
-        "single_user_allowed" : True,
-        "source_restriction" : "admin",
+        "require_admin" : True,
         "function" : bot_status_command,
     },
     "subscribe" : {
-        "args" : None,
-        "single_user_allowed" : False,
-        "source_restriction" : None,
+        "disallow_single_user_mode" : True,
         "function" : bot_subscribe_command,
     },
     "unsubscribe" : {
-        "args" : None,
-        "single_user_allowed" : False,
-        "source_restriction" : None,
+        "disallow_single_user_mode" : True,
         "function" : bot_unsubscribe_command,
     },
     "player-only" : {
+        "require_source_user" : True,
         "args" : [
             {
                 "pattern" : r"(on|off)$",
                 "description" : "on|off",
                 "required" : False
             } ],
-        "single_user_allowed" : True,
-        "source_restriction" : "user",
         "function" : bot_player_only_command,
     },
 }
