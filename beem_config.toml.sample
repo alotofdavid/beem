@@ -10,7 +10,7 @@ db_file = "beem_data.db3"
 # === DCSS IRC settings ===
 [dcss]
 
-# IRC host and port
+# IRC hostname and port. IRC port. If not using ssl, use the default IRC port.
 hostname = "irc.freenode.net"
 port = 6667
 
@@ -26,8 +26,9 @@ port = 6667
 # username = ""
 # password = ""
 
-# IRC nick. If SASL is used, this can be different from the username below.
-# nick = ""
+# A unique IRC nick is required. If SASL is used, this can be different from
+# the username.
+nick = ""
 
 # Chat messages matching these regular expressions anywhere in the message will
 # not be passed on to any IRC bot. You can add regular expression patterns to
@@ -123,7 +124,7 @@ max_game_idle = 3600
 # designated slot.
 game_rewatch_timeout = 30
 
-# Set this to true to have beem use a dedicated connection to watch the most
+# Set this to true to have the bot use a dedicated connection to watch the most
 # spectated non-idle game on the server. Note the connection used is
 # independent of the limit in `max_watched_subscribers' above.
 # autowatch_enabled = true

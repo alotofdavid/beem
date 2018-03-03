@@ -1,9 +1,5 @@
-#!/usr/bin/env python3
-
 """beem: A multi-user chat bot that can relay queries to the IRC
-knowledge bots for DCSS from WebTiles chat.
-
-"""
+knowledge bots for DCSS from WebTiles chat."""
 
 import argparse
 
@@ -21,13 +17,13 @@ import sys
 import traceback
 import webtiles
 
-from .dcss import DCSSManager
-from .config import BeemConfig
-from .webtiles import WebTilesManager, db_tables
 from .botdb import BotDB
+from .config import BeemConfig
+from .dcss import DCSSManager
 from .version import version
+from .webtiles import WebTilesManager, db_tables
 
-## Will be configured by beem_server after the config is loaded.
+# Will be configured by beem_server after the config is loaded.
 _log = logging.getLogger()
 
 _DEFAULT_BEEM_CONFIG_FILE = "beem_config.toml"

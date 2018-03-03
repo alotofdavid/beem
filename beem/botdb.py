@@ -7,11 +7,9 @@ import sqlite3
 _log = logging.getLogger()
 
 class BotDB():
-    """This class allows access and updates to a user table in an sqlite3
-    DB. It loads the data into an in-memory copy that it keeps up to
-    date as changes are made.
-
-    """
+    """This class allows access and updates to a user table in an sqlite3 DB.
+    It loads the data into an in-memory copy that it keeps up to date as
+    changes are made."""
 
     def __init__(self, db_file, db_tables, user_table=None):
         self.db_file = db_file
@@ -73,9 +71,7 @@ class BotDB():
     def load_db(self):
         """Load the user database from the sqlite3 DB, creating one if
         necessary. The sqlite3 data are loaded into an in-memory copy that can
-        be retrieved through `get_user_data()`.
-
-        """
+        be retrieved through `get_user_data()`."""
 
         self.check_db()
 
