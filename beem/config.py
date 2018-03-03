@@ -16,14 +16,13 @@ class Config():
     def __getattr__(self, name):
         try:
             return self.data[name]
+
         except KeyError:
             raise AttributeError(name)
 
     def get(self, *args):
         """Allow directly accessing attributes to get the corresponding TOML
-        data.
-
-        """
+        data."""
 
         return self.data.get(*args)
 
@@ -34,22 +33,23 @@ class Config():
                              condition_field=None):
         """Require the given fields be defined in the given table. If
         condition_field is defined, the fields will only be required if the
-        field in condition_field is defined.
-
-        """
+        field in condition_field is defined."""
 
         if condition_field and condition_field not in table:
             return
 
         condition_text = ""
         if condition_field:
-            condition_text = "field {} defined but"
+            condition_text = "field {} defined but "
         for field in fields:
             if field not in table:
                 self.error("In table {}, {}field {} undefined.".format(
                     table_name, condition_text, field))
 
     def init_logging(self):
+        """Check the logging configuration in the TOML file and initialize the
+        Python logger based on this."""
+
         if not self.get("logging_config"):
             self.error("logging_config table undefined.")
 
@@ -74,6 +74,9 @@ class Config():
             logger.setLevel(log_conf["level"])
 
     def check_dcss(self):
+        """Check that there is a 'dcss' table in the TOML data and that it has
+        the necessary entries."""
+
         if not self.get("dcss"):
             self.error("The dcss table is undefined.")
 
@@ -92,7 +95,8 @@ class Config():
                                        "has_monster", "has_git"])
 
     def load(self):
-        """Read the main TOML configuration data from self.path"""
+        """Read the main TOML configuration data from self.path and check that
+        the configuration is valid."""
 
         if not os.path.exists(self.path):
             self.error("Couldn't find file!")
@@ -123,6 +127,9 @@ class BeemConfig(Config):
         super().__init__(path)
 
     def check_webtiles(self):
+        """Check that there is a 'dcss' table in the TOML data and that it has
+        the necessary entries."""
+
         webtiles = self.webtiles
         self.require_table_fields("webtiles", webtiles,
                                   ["server_url", "protocol_version",
@@ -144,6 +151,9 @@ class BeemConfig(Config):
                                   "autowatch_enabled")
 
     def load(self):
+        """Read the main TOML configuration data from self.path and check that
+        the configuration is valid."""
+
         super().load()
 
         if not self.get("db_file"):

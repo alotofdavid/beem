@@ -28,10 +28,12 @@ def pluralize_name(name):
     return name
 
 class ChatWatcher():
-    """A base class used by beem and lomlobot for handling chat messages."""
+    """A base class used for handling chat messages."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # message timestamps for command throttling.
         self.message_times = []
         self.bot_command_prefix = '!'
         self.admin_target_prefix = "^"
@@ -63,14 +65,17 @@ class ChatWatcher():
 
     def get_chat_dcss_nicks(self, sender):
         """Return a set containing the nick mapping for all users in
-        chat. Returning none will cause no $chat variable nick
+        chat. Returning None will cause no $chat variable nick
         substitution to occur."""
 
         return None
 
-    @asyncio.coroutine
-    def send_command_usage(self, command):
+    def get_command_usage(self, command):
+        """Make a command usage string to print when a bot command failed to
+        parse."""
+
         msg = "Usage: {}{}".format(self.bot_command_prefix, command)
+
         entry = self.manager.bot_commands[command]
         entry_args = entry["args"] if entry["args"] else []
         for a in entry_args:
@@ -222,6 +227,7 @@ class ChatWatcher():
         except Exception:
             self.log_exception("unable to handle bot command"
                     "(requester: {}, command: {})".format(sender, orig_message))
+
         else:
             if not entry.get("unlogged"):
                 _log.info("%s: Did bot command (source: %s, request user: "
@@ -297,6 +303,7 @@ class ChatWatcher():
         else:
             yield from self.manager.dcss_manager.read_message(self, sender,
                     message)
+
 
 @asyncio.coroutine
 def bot_help_command(source, user):

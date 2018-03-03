@@ -21,8 +21,8 @@ import traceback
 _log = logging.getLogger()
 
 # Max number of queries we can have waiting for a response before we refuse
-# further queries. The limit is 10 ** _QUERY_ID_DIGITS.
-_QUERY_ID_DIGITS = 2
+# further queries. The limit is 10 ** _query_id_digits.
+_query_id_digits = 2
 # How long to wait in second for a query before ignoring any result from a bot
 # and reusing the query ID. Sequell times out after 90s, so we use 100s.
 _MAX_REQUEST_TIME = 100
@@ -30,7 +30,21 @@ _MAX_REQUEST_TIME = 100
 # connection.
 _RECONNECT_TIMEOUT = 5
 
+# Strings for services provided by DCSS bots. Used to match fields in the
+# config andto indicate what type of query was performed.
+_bot_services = ["sequell", "monster", "git"]
+
+# For extracting the single-character prefix from a Sequell !RELAY result.
+_QUERY_PREFIX_CHARS = string.ascii_letters + string.digits
+_query_prefix_regex = re.compile(r"^([a-zA-Z0-9])")
+
+# Patterns for adding player and chat variables to Sequell queries.
+_player_var_regex = re.compile(r"\$p(?=\W|$)|\$\{p\}")
+_chat_var_regex = re.compile(r"\$chat(?=\W|$)|\$\{chat\}")
+
 class IRCBot():
+    """Coodrinate queries for a bot."""
+
     def __init__(self, manager, conf):
         self.manager = manager
         self.conf = conf
@@ -38,9 +52,7 @@ class IRCBot():
 
     def is_bot_message(self, message):
         """Is the given message intended for this bot? Check against its message
-        patterns.
-
-        """
+        patterns."""
 
         for p in self.conf["patterns"]:
             if re.search(p, message):
@@ -66,7 +78,7 @@ class IRCBot():
             raise
 
     def prepare_sequell_message(self, source, sender, query_id, message):
-        id_format = "{{:0{}}}".format(_QUERY_ID_DIGITS)
+        id_format = "{{:0{}}}".format(_query_id_digits)
         prefix = id_format.format(query_id)
 
         # Hack to make $p get assigned to the player for Sequell purposes.
@@ -78,19 +90,82 @@ class IRCBot():
         # nicks.
         chat_nicks = source.get_chat_dcss_nicks(sender)
         if chat_nicks:
-            message = re.sub(r"\$chat(?=\W|$)|\$\{chat\}",
-                    "@" + "|@".join(chat_nicks), message)
+            query = _char_var_regex.sub('@' + '|@'.join(chat_nicks), query)
 
-        sender_nick = source.get_dcss_nick(sender)
-        message = "!RELAY -nick {} -prefix {} -n 1 {}".format(sender_nick,
-                prefix, message)
-        return message
+        requester_nick = source.get_dcss_nick(requester)
+        return "!RELAY -nick {} -prefix {} -n 1 {}".format(requester_nick,
+                _QUERY_PREFIX_CHARS[query_id], query)
 
-    def get_result_ident(self, message):
-        ident = {}
-        if self.conf["has_sequell"]:
-            match = re.match(r"^([0-9]{{{}}})".format(_QUERY_ID_DIGITS),
-                             message)
+    def expire_old_queries(self, current_time):
+        """Expire query entries in the queries dict, the last returned query,
+        and in the query id queue if they're too old relative to the given
+        time."""
+
+        last_query_age = None
+        if self.last_result_query:
+            last_query_age = current_time - self.last_result_query["time"]
+        if last_query_age and last_query_age >= _MAX_REQUEST_TIME:
+            self.last_result_query = None
+
+        for i in range(0, len(_QUERY_PREFIX_CHARS)):
+            if i not in self.queries:
+                if i in self.queue:
+                    self.queue.remove(i)
+
+            elif current_time - self.queries[i]["time"] >= _MAX_REQUEST_TIME:
+                del self.queries[i]
+                if i in self.queue:
+                    self.queue.remove(i)
+
+    def make_query_entry(self, source, username, message):
+        """Find a query id available for use, recording the details of the
+        requesting source and username as well as the time of the request in a
+        dict that is stored in our dict of pending queries."""
+
+        current_time = time.time()
+        self.expire_old_queries(current_time)
+
+        # Find an available query id.
+        query_id = None
+        for i in range(0, len(_QUERY_PREFIX_CHARS)):
+            if (not i in self.queries
+                    and (not self.last_answered_query
+                        or i != self.last_answered_query['id'])):
+                query_id = i
+                break
+
+        if not query_id:
+            raise Exception("too many queries in queue")
+
+        query = {'id'           : query_id,
+                 'requester'    : username,
+                 'source_ident' : source.get_source_ident(),
+                 'time'         : current_time,
+                 'type'         : self.get_message_service(message)}
+        self.queries[query_id] = query
+
+        return query
+
+    @asyncio.coroutine
+    def send_query(self, source, requester, query):
+        query_entry = self.manager.make_query_entry(source, requester)
+
+        if 'sequell' in self.services:
+            query = self.prepare_sequell_query(source, requester,
+                    query_entry['id'], query)
+        else:
+            self.queue.append(query_entry['id'])
+
+        yield from self.manager.send(self.conf["nick"], query)
+
+    def get_message_query_id(self, message):
+        """Get the originating query ID associated with the given IRC message
+        recieved from the bot."""
+
+        # This bot has Sequell, which means we assume it uses !RELAY and that
+        # Sequell queries are the only type of queries the bot handles.
+        if 'sequell' in self.services:
+            match = _query_prefix_regex.match(message)
             if not match:
                 _log.warning("DCSS: Received %s message with invalid "
                              "relay prefix: %s", self.conf["nick"], message)
@@ -103,16 +178,10 @@ class IRCBot():
         if not len(self.queue):
             return
 
-        # First part of a monster query result.
-        monster_pattern = (r"Monster stats|Invalid|unknown|bad|[^()|]+ "
-                           "\(.\) \|")
-        # First part of a %git query result.
-        git_pattern = r"github\.com|^Could not"
-        if self.conf["has_monster"] and re.match(monster_pattern, message):
+        if self.conf["has_monster"] and _monster_pattern.match(message):
             ident["query_id"] = self.queue.pop(0)
             ident["type"] = "monster"
-
-        elif self.conf["has_git"] and re.search(git_pattern, message):
+        elif self.conf["has_git"] and _git_pattern.search(message):
             ident["query_id"] = self.queue.pop(0)
             ident["type"] = "git"
 
@@ -122,9 +191,7 @@ class IRCBot():
 class DCSSManager():
     """DCSS manager. Responsible for managing an IRC connection, sending queries
     to the knowledge bots and sending the results to the right source
-    chat.
-
-    """
+    chat."""
 
     ## Can't depend on beem_conf, as this isn't loaded yet.
     def __init__(self, conf):
@@ -140,6 +207,9 @@ class DCSSManager():
         self.server = self.reactor.server()
 
     def log_exception(self, error_msg):
+        """Log an exception and its traceback with the given message describing
+        the source of the exception."""
+
         exc_type, exc_value, exc_tb = sys.exc_info()
         _log.error("DCSS: %s", error_msg)
         _log.error("".join(traceback.format_exception(
@@ -186,34 +256,38 @@ class DCSSManager():
 
     def disconnect(self):
         """Disconnect IRC. This will log any disconnection error, but never
-        raise.
-
-        """
+        raise."""
 
         if self.conf.get("fake_connect") or not self.server.is_connected():
             return
 
         try:
             self.server.disconnect()
+
         except Exception:
             self.log_exception("Error when disconnecting IRC")
 
     def is_connected(self):
-        # We check server.authenticated to make sure connect() is called once
-        # when fake_connect is true.
+        """Are we connected to IRC? This does not mean we are done with any IRC
+        authentication we might be doing, just that the connection is up."""
+
+        # If fake_connect is true, we still need connect() to be called once.
+        # We check self.server.authenticated, since that will be set to True by
+        # connect() under fake_connect.
         if self.conf.get("fake_connect"):
-            result = False
-            try:
-                return self.server.authenticated
-            except:
-                return False
+            return self.server.authenticated
 
         return self.server.is_connected()
 
     @asyncio.coroutine
     def start(self):
+        """Start the DCSS manager task."""
+
         _log.info("DCSS: Starting manager")
+
         while True:
+            # If we're not connected, attempt to connect, reconnecting after a
+            # wait period upon error.
             tried_connect = False
             while not self.is_connected():
                 if tried_connect:
@@ -221,15 +295,20 @@ class DCSSManager():
 
                 try:
                     yield from self.connect()
+
                 except asyncio.CancelledError:
                     return
+
                 except Exception:
                     self.log_exception("Unable to connect IRC")
 
                 tried_connect = True
 
+            # This will populate self.messages with any IRC messages we've
+            # received.
             try:
                 self.reactor.process_once()
+
             except Exception:
                 self.log_exception("Error reading IRC connection")
                 self.disconnect()
@@ -239,13 +318,15 @@ class DCSSManager():
                 self.messages.remove(m)
                 yield from self.read_irc(nick, message)
 
-            ## XXX This seems needed to give other coroutines a chance to
-            ## run. It may be needed until we can rework the irc connection to
-            ## use asyncio's connections/streams.
+            # XXX This seems needed to give other coroutines a chance to run.
+            # It may be needed until we can rework the irc connection to use
+            # asyncio's connections/streams.
             yield from asyncio.sleep(0.1)
 
     @asyncio.coroutine
     def send(self, nick, message):
+        """Send a private IRC message to the given nick."""
+
         _log.debug("DCSS: Sending message to %s: %s", nick, message)
         if self.conf.get("fake_connect"):
             return
@@ -253,9 +334,9 @@ class DCSSManager():
         self.server.privmsg(nick, message)
 
     def dispatcher(self, connection, event):
-        """
-        Dispatch events to on_<event.type> method, if present.
-        """
+        """Dispatch events to on_<event.type> method, if present. All messages
+        we're interested in are either related to SASL authentication or are
+        private messages from DCSS IRC that are DCSS query results."""
 
         if event.type == "privmsg":
             self.on_privmsg(event)
@@ -271,6 +352,10 @@ class DCSSManager():
             self.on_904_message(event)
 
     def on_900_message(self, event):
+        """Hande a 900 event message that indicates SASL authentication is
+        complete. Connection details are managed by self.server, so we only log
+        this."""
+
         _log.info("DCSS: SASL authentication complete")
 
     def on_904_message(self, event):
@@ -278,35 +363,43 @@ class DCSSManager():
         os.kill(os.getpid(), signal.SIGTERM)
 
     def on_privmsg(self, event):
-        """
-        Handle irc private message
-        """
+        """Handle an IRC private message."""
 
         if not self.ready():
             return
 
+        # Remove any terminal control characters and extract the nick.
         message = re.sub(
             "\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?", "",
             event.arguments[0], flags=re.UNICODE)
         nick = re.sub(r"([^!]+)!.*", r"\1", event.source)
         self.messages.append((nick, message))
 
-    def make_query_id(self, source, user):
-        new_id = None
+    def make_query_id(self, source, username):
+        """Find a query id available for use, recording the details of the
+        requesting source and username as well as the time of the request in a
+        dict that is stored in our dict of pending queries."""
+
         current_time = time.time()
         last_query_age = None
         if self.last_result_query:
             last_query_age = current_time - self.last_result_query["time"]
-        if last_query_age and last_query_age >= _MAX_REQUEST_TIME:
+
+        if last_query_age and last_query_age >= _max_request_time:
             self.last_result_query = None
             self.last_result_ident = None
 
-        for i in range(0, 10 ** _QUERY_ID_DIGITS):
+        # Find an available query id.
+        new_id = None
+        for i in range(0, 10 ** _query_id_digits):
+            # Re-use any query id that's too old.
             if i in self.queries:
-                if current_time - self.queries[i]["time"] >= _MAX_REQUEST_TIME:
+                if current_time - self.queries[i]["time"] >= _max_request_time:
                     new_id = i
                     break
 
+            # Don't try to use the query id of the last successfully answered
+            # query, since it might be returned in multiple parts.
             if (not self.last_result_ident
                 or i != self.last_result_ident["query_id"]):
                 new_id = i
@@ -316,14 +409,15 @@ class DCSSManager():
             raise Exception("too many queries in queue")
 
         self.queries[new_id] = {"source_ident" : source.get_source_ident(),
-                                "requester" : user,
-                                "time" : current_time}
+                                "requester"    : username,
+                                "time"         : current_time}
         return new_id
 
     def get_result_ident(self, nick, message):
-        """Get the result details from the message. If the bot's handler
+        """Get th result details from the message. If the bot's handler
         doesn't have result details, assume that the details are the same as
         the last returned result."""
+
         result_ident = self.bots[nick].get_result_ident(message)
         if result_ident is None:
             result_ident = self.last_result_ident
@@ -337,6 +431,7 @@ class DCSSManager():
     def get_query_result(self, nick, message):
         """Find the query details in our queue based on the query ID for the
         result determined by the bot handler."""
+
         ident = self.get_result_ident(nick, message)
         if not ident:
             return
@@ -357,9 +452,7 @@ class DCSSManager():
     @asyncio.coroutine
     def read_irc(self, nick, message):
         """Process an IRC message, forwarding any query results to the query
-        source.
-
-        """
+        source."""
 
         if not self.bots.get(nick):
             _log.warning("DCSS: Ignoring message from %s: %s", nick, message)
@@ -381,7 +474,7 @@ class DCSSManager():
         # Sequell can output queries for other bots.
         if result_ident["type"] == "sequell":
             # Remove relay prefix
-            message = re.sub(r"^[0-9]{{{}}}".format(_QUERY_ID_DIGITS), "",
+            message = re.sub(r"^[0-9]{{{}}}".format(_query_id_digits), "",
                              message)
             dest_bot = None
             for dest_nick, bot in self.bots.items():
@@ -401,7 +494,8 @@ class DCSSManager():
                 except Exception:
                     self.log_exception("Unable to relay to {} from {} on "
                             "behalf of {} (message: {})".format(nick,
-                                source.describe(), query["requester"], message))
+                                source.describe(), query["requester"],
+                                message))
                     raise
 
             # Sequell returns /me literally instead of using an IRC action, so
@@ -415,7 +509,7 @@ class DCSSManager():
         yield from source.send_chat(message, message_type)
 
     @asyncio.coroutine
-    def read_message(self, source, user, message):
+    def read_message(self, source, username, message):
         dest_bot = None
         for bot_nick, bot in self.bots.items():
             if bot.is_bot_message(message):
@@ -426,17 +520,22 @@ class DCSSManager():
             raise Exception("Unknown bot message: {}".format(message))
 
         try:
-            yield from dest_bot.send_message(source, user, message)
+            yield from dest_bot.send_message(source, username, message)
+
         except Exception:
             self.log_exception("Unable to send message from {} to {} "
                     "(requester: {}, message: {})".format(source.describe(),
-                        dest_bot.conf["nick"], user, message))
+                        dest_bot.conf["nick"], username, message))
 
         else:
             _log.debug("DCSS: Sent %s message (source: %s, requester: %s): %s",
-                    dest_bot.conf["nick"], source.describe(), user, message)
+                    dest_bot.conf["nick"], source.describe(), username,
+                    message)
 
     def is_bad_pattern(self, message):
+        """Does this message match against a 'bad pattern' regexp that excludes
+        it from processing?"""
+
         if not self.conf.get("bad_patterns"):
             return False
 
@@ -446,6 +545,8 @@ class DCSSManager():
                 return True
 
     def is_dcss_message(self, message):
+        """Does this message a dcss message handled by one of the bots?"""
+
         if self.is_bad_pattern(message):
             return False
 
@@ -455,13 +556,12 @@ class DCSSManager():
 
         return False
 
-class ServerConnection(irc.client.ServerConnection):
-    """The ServerConnection class from irc.client, modified to send a differently
-    formatted USER command, to support automatic capability requests, and to
-    support SASL authentication. Once SASL authentication is complete, the
-    authenticated property will be True.
 
-    """
+class ServerConnection(irc.client.ServerConnection):
+    """The ServerConnection class from irc.client, modified to send a
+    differently formatted USER command, to support automatic capability
+    requests, and to support SASL authentication. Once SASL authentication is
+    complete, the authenticated property will be True."""
 
     # save the method args to allow for easier reconnection.
     @irc_functools.save_method_args
@@ -486,9 +586,8 @@ class ServerConnection(irc.client.ServerConnection):
 
         This function can be called to reconnect a closed connection.
 
-        Returns the ServerConnection object.
+        Returns the ServerConnection object."""
 
-        """
         _log.debug("connect(server=%r, port=%r, nickname=%r, ...)", server,
             port, nickname)
 
@@ -509,11 +608,14 @@ class ServerConnection(irc.client.ServerConnection):
         self.authenticated = False
         self.capabilities = capabilities
         self.connect_factory = connect_factory
+
         try:
             self.socket = self.connect_factory(self.server_address)
+
         except socket.error as ex:
             raise irc.client.ServerConnectionError(
                 "Couldn't connect to socket: %s" % ex)
+
         self.connected = True
         self.reactor._on_connect(self.socket)
 
@@ -530,9 +632,7 @@ class ServerConnection(irc.client.ServerConnection):
 
     def user(self, username, realname):
         """Send a USER command. This form is slightly modified from the USER
-        command sent in the original irc.client.ServerConnection
-
-        """
+        command sent in the original irc.client.ServerConnection."""
 
         self.send_raw("USER {0} {0} {1} :{2}".format(username, self.server,
                                                      realname))
@@ -540,9 +640,7 @@ class ServerConnection(irc.client.ServerConnection):
     def authenticate(self, request_method=False):
         """AUTHENTICATE command. If request_method is True, request PLAIN
         authentication, which is the only type we support. Otherwise send the
-        authentication credentials.
-
-        """
+        authentication credentials."""
 
         if request_method:
             self.send_raw("AUTHENTICATE PLAIN")
@@ -558,9 +656,7 @@ ServerConnection.buffer_class.errors = 'replace'
 
 class Reactor(irc.client.Reactor):
     """The Reactor class from irc.client that uses our modified ServerConnection
-    class and coordinates capabilities and SASL requests.
-
-    """
+    class and coordinates capabilities and SASL requests."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

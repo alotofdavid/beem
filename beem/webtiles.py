@@ -23,20 +23,18 @@ from .version import version as Version
 _log = logging.getLogger()
 
 # How long to wait in seconds before reattempting a WebSocket connection.
-_RETRY_CONNECTION_WAIT = 5
+_retry_connection_wait = 5
 # How many seconds to wait after sending a login or watch request before we
 # timeout.
-_REQUEST_TIMEOUT = 10
+_request_timeout = 10
 # How many seconds to wait after a game ends before attempting to watch the
 # game again.
-_REWATCH_WAIT = 5
+_rewatch_wait = 5
 
 class ConnectionHandler():
-    """This class provides some basic support to continuous read/respond
-    tasks. This code is common to both the lobby connection and game
-    connections, but isn't general enough to be in the webtiles package itself.
-
-    """
+    """This class provides some basic support to continuous read/respond tasks.
+    This code is common to both the lobby connection and game connections, but
+    isn't general enough to be in the webtiles package itself."""
 
     def __init__(self, manager, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -76,7 +74,7 @@ class ConnectionHandler():
 
             except Exception:
                 self.log_exception("unable to connect")
-                yield from asyncio.sleep(_RETRY_CONNECTION_WAIT)
+                yield from asyncio.sleep(_retry_connection_wait)
                 ensure_future(self.manager.stop_connection(self))
                 return
 
@@ -88,8 +86,10 @@ class ConnectionHandler():
             messages = None
             try:
                 messages = yield from self.read()
+
             except asyncio.CancelledError:
                 return
+
             except Exception:
                 self.log_exception("unable to read WebSocket")
                 ensure_future(self.manager.stop_connection(self))
@@ -101,8 +101,10 @@ class ConnectionHandler():
             for message in messages:
                 try:
                     yield from self.handle_message(message)
+
                 except asyncio.CancelledError:
                     return
+
                 except Exception:
                     self.log_exception("unable to handle WebSocket message")
                     ensure_future(self.manager.stop_connection(self))
@@ -111,9 +113,8 @@ class ConnectionHandler():
 
 class LobbyConnection(webtiles.WebTilesConnection, ConnectionHandler):
     """Lobby connection. Only needed due to different connection arguments and
-    formatting on error messages.
+    formatting on error messages."""
 
-    """
     def __init__(self, manager, *args, **kwargs):
         super().__init__(manager, *args, **kwargs)
 
@@ -131,9 +132,8 @@ class LobbyConnection(webtiles.WebTilesConnection, ConnectionHandler):
 
 class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
                      ChatWatcher):
-    """A game websocket connection that watches chat and responds to commands.
-
-    """
+    """A game websocket connection that watches chat and responds to
+    commands."""
 
     def __init__(self, manager, player, game_id, *args, **kwargs):
         super().__init__(manager, *args, **kwargs)
@@ -156,9 +156,9 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         # too long.
         self.last_reminder_time = None
 
-    # Player of this game.
     @property
     def user(self):
+        """The user of this chat source is the player."""
         return self.player
 
     def describe(self):
@@ -177,9 +177,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
     def get_source_ident(self):
         """Get a unique identifier dict of the game for this connection.
         Identifies this game connection as a source for chat watching. This is
-        used to map DCSS queries to their results as they're received.
-
-        """
+        used to map DCSS queries to their results as they're received."""
 
         return {"service" : self.manager.service,
                 "player" : self.player,
@@ -188,12 +186,10 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
     @asyncio.coroutine
     def handle_pre_read(self):
         """For a game connection, we check timeouts on login and watch
-        requests, and greet the user if we're autowatching them.
-
-        """
+        requests, and greet the user if we're autowatching them."""
 
         if (self.time_since_request
-            and time.time() - self.time_since_request >= _REQUEST_TIMEOUT):
+            and time.time() - self.time_since_request >= _request_timeout):
             ensure_future(self.manager.stop_connection(self))
             return
 
@@ -212,6 +208,13 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
         greeting = greeting.replace("%n", self.login_user)
         yield from self.send_chat(greeting)
         self.need_greeting = False
+
+    def get_chat_dcss_nicks(self, sender):
+        nicks = set()
+        for username in self.spectators:
+            if self.is_allowed_user(username):
+                nicks.add(username)
+        return nicks
 
     def user_is_admin(self, user):
         """Return True if the user is a bot admin."""
@@ -258,9 +261,7 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
     def send_chat(self, message, message_type="normal"):
         """Send a WebTiles chat message. We currently shut down the game
         connection if an error occurs and log the event, but don't raise to the
-        caller, since we don't care to take any action.
-
-        """
+        caller, since we don't care to take any action."""
 
         if message_type == "action":
             message = "*{}* {}".format(self.login_user, message)
@@ -353,16 +354,13 @@ class WebTilesManager():
     @asyncio.coroutine
     def stop_connection(self, conn):
         """Shut down a WebTiles connection. If the connection is a game
-        connection, it has its game connection entry removed
-        (including autowatch).
+        connection, it has its game connection entry removed (including
+        autowatch).
 
-        Note: This cancels the connection's start() tasks, so any
-        coroutine that might call this through start() should use
-        asyncio.ensure_future() to schedule instead of yield,
-        otherwise that call to stop_connection() itself can be
-        cancelled.
-
-        """
+        Note: This cancels the connection's start() tasks, so any coroutine
+        that might call this through start() should use asyncio.ensure_future()
+        to schedule instead of yield, otherwise that call to stop_connection()
+        itself can be cancelled."""
 
         if conn.task and not conn.task.done():
             conn.task.cancel()
@@ -408,9 +406,13 @@ class WebTilesManager():
 
     @asyncio.coroutine
     def start(self):
+        """Start the WebTiles service manager."""
+
         _log.info("WebTiles: Starting manager")
+
         if not self.lobby:
             self.lobby = LobbyConnection(self)
+
         while True:
             if not self.lobby.task or self.lobby.task.done():
                 self.lobby.task = ensure_future(self.lobby.start())
@@ -427,13 +429,17 @@ class WebTilesManager():
             yield from asyncio.sleep(0.5)
 
     def add_queue(self, player, game_id, pos=None):
+        """Add a game to the watch queue. It will be watched when a watching
+        slot is available."""
+
         entry = {"username" : player,
                  "game_id"  : game_id,
                  "time_end" : None}
         if pos is None:
             pos = len(self.watch_queue)
+
         self.watch_queue.insert(pos, entry)
-        pass
+        return
 
     def get_queue_entry(self, player, game_id):
         for entry in self.watch_queue:
@@ -441,14 +447,15 @@ class WebTilesManager():
             ### watch URLs by game for the same user.
             if entry["username"] == player:
                 return entry
+
         return
 
     @asyncio.coroutine
     def do_autowatch_game(self, game):
         player, game_id = game
         if (self.autowatch
-            and self.autowatch.player == player
-            and self.autowatch.game_id == game_id):
+                and self.autowatch.player == player
+                and self.autowatch.game_id == game_id):
             return
 
         _log.info("WebTiles: Found new autowatch user %s", player)
@@ -462,16 +469,15 @@ class WebTilesManager():
         else:
             try:
                 yield from self.autowatch.send_watch_game(player, game_id)
-            except Exception as e:
+
+            except Exception:
                 yield from self.stop_connection(self.autowatch)
 
 
     @asyncio.coroutine
     def check_current_autowatch(self):
         """When we don't find a new autowatch candidate, check that we're still
-        able to watch our present autowatch game.
-
-        """
+        able to watch our present autowatch game."""
 
         if not self.autowatch:
             return
@@ -490,7 +496,7 @@ class WebTilesManager():
 
         # See if this game is no longer eligable for autowatch. We don't
         # require a min. spectator count after the initial autowatch, since
-        # doing so just leads to a lot of flucutation in autowatching.
+        # doing so just leads to a lot of fluctations in autowatching.
         idle_time = (lobby_entry["idle_time"] +
                      time.time() - lobby_entry["time_last_update"])
         game_allowed = self.is_game_allowed(self.autowatch.player,
@@ -511,9 +517,7 @@ class WebTilesManager():
 
     def process_lobby(self):
         """Process lobby entries, adding games to the watch queue and return an
-        autowatch candidate if one is found.
-
-        """
+        autowatch candidate if one is found."""
 
         autowatch_spectators = -1
         min_spectators = self.conf["min_autowatch_spectators"]
@@ -540,15 +544,17 @@ class WebTilesManager():
                             and len(self.connections) >= max_subscribers)
             # Find an autowatch candidate
             if (self.conf.get("autowatch_enabled")
-                and self.dcss_manager.ready()
-                and entry["spectator_count"] >= min_spectators
-                and (not subscribed or no_free_slot)
-                # If there's a tie, favor a game we're already autowatching
-                # instead of letting the order of iteration decide.
-                and (conn
-                     and conn is self.autowatch
-                     and entry["spectator_count"] == autowatch_spectators
-                     or entry["spectator_count"] > autowatch_spectators)):
+                    and self.dcss_manager.ready()
+                    and entry["spectator_count"] >= min_spectators
+                    and (not subscribed or no_free_slot)
+                    and (conn
+                        and conn is self.autowatch
+                        # If there's a tie, favor a game we're already
+                        # autowatching instead of letting the order of
+                        # iteration decide.
+                        and entry["spectator_count"] == autowatch_spectators
+                        # This is chosen because it has more spectators.
+                        or entry["spectator_count"] > autowatch_spectators)):
                 autowatch_spectators = entry["spectator_count"]
                 autowatch_game = (entry["username"], entry["game_id"])
 
@@ -556,9 +562,8 @@ class WebTilesManager():
 
     @asyncio.coroutine
     def process_queue(self):
-        """Update the subscriber watch queue, watching any games that we can.
-
-        """
+        """Update the subscriber watch queue, watching any games that we
+        can."""
 
         timeout = self.conf["game_rewatch_timeout"]
         max_subscribers = self.conf["max_watched_subscribers"]
@@ -569,13 +574,14 @@ class WebTilesManager():
             if lobby:
                 idle_time = (lobby["idle_time"] +
                              time.time() - lobby["time_last_update"])
-            conn = self.get_connection(entry["username"], entry["game_id"])
             idle = idle_time >= self.conf["max_game_idle"]
+
             allowed = self.is_game_allowed(entry["username"], entry["game_id"])
             wait = (entry["time_end"]
-                    and time.time() - entry["time_end"] < _REWATCH_WAIT)
+                    and time.time() - entry["time_end"] < _rewatch_wait)
             expired = (not entry["time_end"]
                        or time.time() - entry["time_end"] >= timeout)
+            conn = self.get_connection(entry["username"], entry["game_id"])
             if conn:
                 end_reason = None
                 if not allowed:
@@ -633,11 +639,9 @@ class WebTilesManager():
         return True
 
     def is_game_allowed(self, username, game_id):
-        """Can this game ever be watched?
+        """Can this game ever be watched? A game is disallowed if the user is
+        not allowed or the game is of too old a version."""
 
-        A game is disallowed if the user is not allowed or the game is
-        of too old a version.
-        """
         if not self.can_watch_user(username):
             return False
 
@@ -701,23 +705,23 @@ def bot_unsubscribe_command(source, username):
 def bot_status_command(source, *args):
     """!status chat command"""
 
+    mgr = source.manager
     report = "Version {}".format(Version)
-    manager = source.manager
-    if manager.autowatch and manager.autowatch.watching:
-        num_specs = len(manager.autowatch.spectators)
-        if manager.autowatch.player in manager.autowatch.spectators:
+
+    if mgr.autowatch and mgr.autowatch.watching:
+        num_specs = len(mgr.autowatch.spectators)
+
+        if mgr.autowatch.player in mgr.autowatch.spectators:
             num_specs -= 1
+
         report += "; Autowatching user {} with {} spec(s)".format(
-            manager.autowatch.player, num_specs)
+            mgr.autowatch.player, num_specs)
 
-    if manager.connections:
+    if mgr.connections:
         names = sorted(
-            [conn.player.lower() for conn in manager.connections])
+            [conn.player.lower() for conn in mgr.connections])
         report += "; Watching {} subscriber(s): {}".format(
-                len(manager.connections), ", ".join(names))
-
-    if not report:
-        raise Exception("Unable to find watched games for status report")
+                len(mgr.connections), ", ".join(names))
 
     yield from source.send_chat(report)
 
