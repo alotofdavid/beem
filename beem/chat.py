@@ -34,7 +34,7 @@ class ChatWatcher():
         super().__init__(*args, **kwargs)
         self.message_times = []
         self.bot_command_prefix = '!'
-        self.admin_target_prefix = "@"
+        self.admin_target_prefix = "^"
 
     def log_exception(self, error_msg):
         """Log an exception message with a stacktrace."""
