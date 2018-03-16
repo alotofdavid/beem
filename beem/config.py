@@ -6,8 +6,10 @@ import os
 import os.path
 import pytoml
 
-class Config():
-    """Base class for TOML config parsing"""
+from .dcss import bot_services
+
+class BotConfig():
+    """Base class for TOML config parsing for bots."""
 
     def __init__(self, path):
         self.data = {}
@@ -89,10 +91,24 @@ class Config():
             self.error("No IRC bots defined in the dcss.bots table.")
 
         for i, entry in enumerate(self.dcss["bots"]):
-            self.require_table_fields("dcss.bots, entry {}".format(i + 1),
-                                      entry,
-                                      ["nick", "patterns", "has_sequell",
-                                       "has_monster", "has_git"])
+            table_desc = "dcss.bots, entry {}".format(i + 1)
+
+            self.require_table_fields(table_desc, entry, ["nick"])
+
+            found_service = False
+            pattern_fields = []
+            for s in bot_services:
+                field = "{}_patterns".format(s)
+                pattern_fields.append(field)
+
+                if entry.get(field):
+                    found_service = True
+                    break
+
+            if not found_service:
+                self.error("In {}, at least one of the pattern fields {} "
+                        "must be defined.".format(table_desc,
+                            ", ".join(pattern_fields)))
 
     def load(self):
         """Read the main TOML configuration data from self.path and check that
@@ -117,14 +133,8 @@ class Config():
         self.init_logging()
 
 
-class BeemConfig(Config):
-    """Holds the beem configuration data loaded from the TOML file. There
-    is one instance of this class available as `config.conf`.
-
-    """
-
-    def __init__(self, path):
-        super().__init__(path)
+class BeemConfig(BotConfig):
+    """Handle configuration data loading for beem."""
 
     def check_webtiles(self):
         """Check that there is a 'dcss' table in the TOML data and that it has

@@ -40,28 +40,24 @@ nick = ""
 
 [[dcss.bots]]
 nick = "Sequell"
-# These are regular expression patterns that beem accepts as prefixes to bot
-# commands in WebTiles chat. A chat message must match one of these at to be
-# forwarded to Sequell.
-patterns = ['^\?\?[^?]', '\?\?\?? *$', '^[qr]\?\?', '^\?/', '^![-.\w]+( |$)',
-            '^&[-.\w]+( |$)', '^\.[-.\w]+( |$)', '^=[-.\w]+( |$)']
-has_sequell = true
-has_monster = false
-has_git = false
+# These are regular expression patterns the bot accepts as prefixes to Sequell
+# commands in chat. A chat message must match one of these at to be forwarded
+# to Sequell.
+sequell_patterns = ['^\?\?', '(?i)^[qr]\?\?', '[^?]\?\?\?? *$', '^\?/',
+                    '^![-.\w]+( |$)', '^&[-.\w]+( |$)', '^\.[-.\w]+( |$)',
+                    '^=[-.\w]+( |$)', '(?i)^rip\b', '(?i)\bgong\b',
+                    '(?i)^cang$']
 
 [[dcss.bots]]
 nick = "Gretell"
-patterns = ['^@\?']
-has_sequell = false
-has_monster = true
-has_git = false
+# Like sequell_patterns above, except for the DCSS monster lookup.
+monster_patterns = ['^@\?']
 
 [[dcss.bots]]
 nick = "Cheibriados"
-patterns = ['^%git', '^%([0-9]+\.[0-9]+)?\?']
-has_sequell = false
-has_monster = true
-has_git = true
+monster_patterns = ['^%([0-9]+\.[0-9]+)?\?']
+# Like sequell_patterns above, except for the git lookup of DCSS source code.
+git_patterns = ['^%git']
 
 
 # =========================
