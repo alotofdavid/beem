@@ -14,15 +14,13 @@ import os
 import signal
 import re
 import ssl
+import string
 import sys
 import time
 import traceback
 
 _log = logging.getLogger()
 
-# Max number of queries we can have waiting for a response before we refuse
-# further queries. The limit is 10 ** _query_id_digits.
-_query_id_digits = 2
 # How long to wait in second for a query before ignoring any result from a bot
 # and reusing the query ID. Sequell times out after 90s, so we use 100s.
 _MAX_REQUEST_TIME = 100
@@ -32,7 +30,7 @@ _RECONNECT_TIMEOUT = 5
 
 # Strings for services provided by DCSS bots. Used to match fields in the
 # config andto indicate what type of query was performed.
-_bot_services = ["sequell", "monster", "git"]
+bot_services = ["sequell", "monster", "git"]
 
 # For extracting the single-character prefix from a Sequell !RELAY result.
 _QUERY_PREFIX_CHARS = string.ascii_letters + string.digits
@@ -48,64 +46,83 @@ class IRCBot():
     def __init__(self, manager, conf):
         self.manager = manager
         self.conf = conf
+
+        self.init_services()
+
+    def init_services(self):
+        """Find any services we have in the config and create their regex
+        pattern objects."""
+
+        self.services = []
+        self.service_patterns = {}
+
+        for s in bot_services:
+            field = "{}_patterns".format(s)
+            if not field in self.conf:
+                continue
+
+            self.services.append(s)
+
+            patterns = []
+            for p in self.conf[field]:
+                patterns.append(re.compile(p))
+            self.service_patterns[s] = patterns
+
+    def init_query_data(self):
+        """Reset message and query tracking variables."""
+
+        # A dict of query dicts keyed by the query id. Each entry holds info
+        # about a DCSS query made to this bot so we can properly route the
+        # result message when it's received back from the bot.
+        self.queries = {}
+
+        # A queue of query IDs used for synchronous services like monster and
+        # git.
         self.queue = []
 
-    def is_bot_message(self, message):
-        """Is the given message intended for this bot? Check against its message
-        patterns."""
+        # The query dict for the last query whose result we handled. Used to
+        # route multiple part messages, primarily for monster queries, but
+        # Sequell can sometimes send multiple messages in response to a single
+        # query despite use of '!RELAY -n 1'
+        self.last_answered_query = None
 
-        for p in self.conf["patterns"]:
-            if re.search(p, message):
-                return True
+    def get_message_service(self, message):
+        """Which type of service is this message intentded for? Returns None if
+        none is found."""
 
-        return False
+        for s in self.services:
+            for p in self.service_patterns[s]:
+                if p.search(message):
+                    return s
 
-    @asyncio.coroutine
-    def send_message(self, source, user, message):
-        query_id = self.manager.make_query_id(source, user)
+    def prepare_sequell_message(self, source, requester, query_id, message):
+        """Format a message containing a query to send through Sequell's !RELAY
+        command."""
 
-        if self.conf["has_sequell"]:
-            message = self.prepare_sequell_message(source, user, query_id,
-                    message)
-        else:
-            self.queue.append(query_id)
-
-        try:
-            yield from self.manager.send(self.conf["nick"], message)
-        except:
-            if not self.conf["has_sequell"]:
-                self.queue.pop()
-            raise
-
-    def prepare_sequell_message(self, source, sender, query_id, message):
-        id_format = "{{:0{}}}".format(_query_id_digits)
-        prefix = id_format.format(query_id)
-
-        # Hack to make $p get assigned to the player for Sequell purposes.
+        # Replace '$p' instances with the player's nick.
         if source.user:
-            source_nick = source.get_dcss_nick(source.user)
-            message = re.sub(r"\$p(?=\W|$)|\$\{p\}", source_nick, message)
+            message = _player_var_regex.sub(source.get_dcss_nick(source.user),
+                    message)
 
-        # Hack to make $chat get assigned to the |-separated list of chat
-        # nicks.
-        chat_nicks = source.get_chat_dcss_nicks(sender)
+        # Replace '$chat' instances with a |-separated list of chat nicks.
+        chat_nicks = source.get_chat_dcss_nicks(requester)
         if chat_nicks:
-            query = _char_var_regex.sub('@' + '|@'.join(chat_nicks), query)
+            message = _chat_var_regex.sub('@' + '|@'.join(chat_nicks), message)
 
         requester_nick = source.get_dcss_nick(requester)
         return "!RELAY -nick {} -prefix {} -n 1 {}".format(requester_nick,
-                _QUERY_PREFIX_CHARS[query_id], query)
+                _QUERY_PREFIX_CHARS[query_id], message)
 
-    def expire_old_queries(self, current_time):
+    def expire_query_entries(self, current_time):
         """Expire query entries in the queries dict, the last returned query,
         and in the query id queue if they're too old relative to the given
         time."""
 
         last_query_age = None
-        if self.last_result_query:
-            last_query_age = current_time - self.last_result_query["time"]
+        if self.last_answered_query:
+            last_query_age = current_time - self.last_answered_query["time"]
         if last_query_age and last_query_age >= _MAX_REQUEST_TIME:
-            self.last_result_query = None
+            self.last_answered_query = None
 
         for i in range(0, len(_QUERY_PREFIX_CHARS)):
             if i not in self.queries:
@@ -123,7 +140,7 @@ class IRCBot():
         dict that is stored in our dict of pending queries."""
 
         current_time = time.time()
-        self.expire_old_queries(current_time)
+        self.expire_query_entries(current_time)
 
         # Find an available query id.
         query_id = None
@@ -134,7 +151,7 @@ class IRCBot():
                 query_id = i
                 break
 
-        if not query_id:
+        if query_id is None:
             raise Exception("too many queries in queue")
 
         query = {'id'           : query_id,
@@ -147,16 +164,18 @@ class IRCBot():
         return query
 
     @asyncio.coroutine
-    def send_query(self, source, requester, query):
-        query_entry = self.manager.make_query_entry(source, requester)
+    def send_query_message(self, source, requester, message):
+        """Send a message containing a DCSS query to the bot."""
+
+        query_entry = self.make_query_entry(source, requester, message)
 
         if 'sequell' in self.services:
-            query = self.prepare_sequell_query(source, requester,
-                    query_entry['id'], query)
+            message = self.prepare_sequell_message(source, requester,
+                    query_entry['id'], message)
         else:
             self.queue.append(query_entry['id'])
 
-        yield from self.manager.send(self.conf["nick"], query)
+        yield from self.manager.send(self.conf["nick"], message)
 
     def get_message_query_id(self, message):
         """Get the originating query ID associated with the given IRC message
@@ -171,21 +190,46 @@ class IRCBot():
                              "relay prefix: %s", self.conf["nick"], message)
                 return
 
-            ident["query_id"] = int(match.group(1))
-            ident["type"] = "sequell"
-            return ident
+            return int(_QUERY_PREFIX_CHARS.index(match.group(1)))
 
-        if not len(self.queue):
-            return
+        # The remain query types are non-Sequell and have no equivalent to
+        # Sequell's !RELAY. These bots are synchronous, so the first entry in
+        # the query id queue will be the relevant query id.
+        else:
+            if not len(self.queue):
+                return
 
-        if self.conf["has_monster"] and _monster_pattern.match(message):
-            ident["query_id"] = self.queue.pop(0)
-            ident["type"] = "monster"
-        elif self.conf["has_git"] and _git_pattern.search(message):
-            ident["query_id"] = self.queue.pop(0)
-            ident["type"] = "git"
+            return self.queue.pop(0)
 
-        return ident
+    def get_message_query(self, message):
+        """Find the query details we have based on the message or the queue."""
+
+        self.expire_query_entries(time.time())
+
+        query_id = self.get_message_query_id(message)
+        # If we have no query information at all, return the query we last
+        # answered, which may be None.
+        if query_id is None:
+            return self.last_answered_query
+
+        # We have a query ID but no query data, meaning there's no unanswered
+        # query corresponding to this ID. This can happen for Sequell when it
+        # decides to send another line of response for a query even through we
+        # use '-n 1' with '!RELAY'. In this case we can use the last answered
+        # query if the IDs match.
+        if not query_id in self.queries:
+            if (self.last_answered_query
+                and query_id == self.last_answered_query['id']):
+                return self.last_answered_query
+
+            else:
+                _log.warning("DCSS: Unable to find query for %s result: %s",
+                        nick, message)
+                return
+
+        self.last_answered_query = self.queries[query_id]
+        del self.queries[query_id]
+        return self.last_answered_query
 
 
 class DCSSManager():
@@ -230,12 +274,11 @@ class DCSSManager():
 
         assert not self.server.is_connected()
 
+        # Holds received IRC messages until they can be processed.
         self.messages = []
-        self.queries = {}
-        self.last_result_ident = None
-        self.last_result_query = None
+
         for bot_nick, bot in self.bots.items():
-            bot.queue = []
+            bot.init_query_data()
 
         if self.conf.get("fake_connect"):
             self.server.authenticated = True
@@ -375,80 +418,6 @@ class DCSSManager():
         nick = re.sub(r"([^!]+)!.*", r"\1", event.source)
         self.messages.append((nick, message))
 
-    def make_query_id(self, source, username):
-        """Find a query id available for use, recording the details of the
-        requesting source and username as well as the time of the request in a
-        dict that is stored in our dict of pending queries."""
-
-        current_time = time.time()
-        last_query_age = None
-        if self.last_result_query:
-            last_query_age = current_time - self.last_result_query["time"]
-
-        if last_query_age and last_query_age >= _max_request_time:
-            self.last_result_query = None
-            self.last_result_ident = None
-
-        # Find an available query id.
-        new_id = None
-        for i in range(0, 10 ** _query_id_digits):
-            # Re-use any query id that's too old.
-            if i in self.queries:
-                if current_time - self.queries[i]["time"] >= _max_request_time:
-                    new_id = i
-                    break
-
-            # Don't try to use the query id of the last successfully answered
-            # query, since it might be returned in multiple parts.
-            if (not self.last_result_ident
-                or i != self.last_result_ident["query_id"]):
-                new_id = i
-                break
-
-        if new_id is None:
-            raise Exception("too many queries in queue")
-
-        self.queries[new_id] = {"source_ident" : source.get_source_ident(),
-                                "requester"    : username,
-                                "time"         : current_time}
-        return new_id
-
-    def get_result_ident(self, nick, message):
-        """Get th result details from the message. If the bot's handler
-        doesn't have result details, assume that the details are the same as
-        the last returned result."""
-
-        result_ident = self.bots[nick].get_result_ident(message)
-        if result_ident is None:
-            result_ident = self.last_result_ident
-            if result_ident is None:
-                _log.warning("DCSS: Unable to find query for %s result: %s",
-                        nick, message)
-                return
-
-        return result_ident
-
-    def get_query_result(self, nick, message):
-        """Find the query details in our queue based on the query ID for the
-        result determined by the bot handler."""
-
-        ident = self.get_result_ident(nick, message)
-        if not ident:
-            return
-
-        if (self.last_result_ident
-            and self.last_result_ident["query_id"] is ident["query_id"]):
-            return (self.last_result_query, self.last_result_ident)
-
-        if not ident["query_id"] in self.queries:
-            return
-
-        query = self.queries[ident["query_id"]]
-        del self.queries[ident["query_id"]]
-        self.last_result_query = query
-        self.last_result_ident = ident
-        return query, ident
-
     @asyncio.coroutine
     def read_irc(self, nick, message):
         """Process an IRC message, forwarding any query results to the query
@@ -458,11 +427,10 @@ class DCSSManager():
             _log.warning("DCSS: Ignoring message from %s: %s", nick, message)
             return
 
-        result = self.get_query_result(nick, message)
-        if not result:
+        query = self.bots[nick].get_message_query(message)
+        if not query:
             return
 
-        query, result_ident = result
         manager = self.managers[query["source_ident"]["service"]]
         source = manager.get_source_by_ident(query["source_ident"])
         if not source:
@@ -470,67 +438,69 @@ class DCSSManager():
                          nick, message)
             return
 
-        message_type = "normal"
         # Sequell can output queries for other bots.
-        if result_ident["type"] == "sequell":
+        if query["type"] == "sequell":
             # Remove relay prefix
-            message = re.sub(r"^[0-9]{{{}}}".format(_query_id_digits), "",
-                             message)
-            dest_bot = None
-            for dest_nick, bot in self.bots.items():
-                if dest_nick == nick:
+            message = _query_prefix_regex.sub("", message)
+            bot = None
+            for n, b in self.bots.items():
+                if n == nick:
                     continue
 
-                if bot.is_bot_message(message):
-                    dest_bot = bot
+                if b.get_message_service(message):
+                    bot = b
                     break
 
-            if dest_bot:
+            if bot:
                 try:
-                    yield from dest_bot.send_message(source,
+                    yield from bot.send_query_message(source,
                             query["requester"], message)
                     return
 
                 except Exception:
-                    self.log_exception("Unable to relay to {} from {} on "
-                            "behalf of {} (message: {})".format(nick,
+                    self.log_exception("Unable to relay message to {} from {} "
+                            "on behalf of {}: {}".format(bot.conf['nick'],
                                 source.describe(), query["requester"],
                                 message))
-                    raise
+                    return
 
             # Sequell returns /me literally instead of using an IRC action, so
             # we do the dirty work here.
             if message.lower().startswith("/me "):
                 message_type = "action"
                 message = message[4:]
+            else:
+                message_type = "normal"
         else:
-            message_type = result_ident["type"]
+            message_type = query["type"]
 
         yield from source.send_chat(message, message_type)
 
     @asyncio.coroutine
     def read_message(self, source, username, message):
-        dest_bot = None
-        for bot_nick, bot in self.bots.items():
-            if bot.is_bot_message(message):
-                dest_bot = bot
+        """Read a message from the given source and username, sending any query
+        to the appropriate bot."""
+
+        bot = None
+        for n, b in self.bots.items():
+            if b.get_message_service(message):
+                bot = b
                 break
 
-        if not dest_bot:
+        if not bot:
             raise Exception("Unknown bot message: {}".format(message))
 
         try:
-            yield from dest_bot.send_message(source, username, message)
+            yield from bot.send_query_message(source, username, message)
 
         except Exception:
             self.log_exception("Unable to send message from {} to {} "
                     "(requester: {}, message: {})".format(source.describe(),
-                        dest_bot.conf["nick"], username, message))
+                        bot.conf["nick"], username, message))
 
         else:
             _log.debug("DCSS: Sent %s message (source: %s, requester: %s): %s",
-                    dest_bot.conf["nick"], source.describe(), username,
-                    message)
+                    bot.conf["nick"], source.describe(), username, message)
 
     def is_bad_pattern(self, message):
         """Does this message match against a 'bad pattern' regexp that excludes
@@ -551,7 +521,7 @@ class DCSSManager():
             return False
 
         for bot_nick, bot in self.bots.items():
-            if bot.is_bot_message(message):
+            if bot.get_message_service(message):
                 return True
 
         return False
