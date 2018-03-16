@@ -402,8 +402,10 @@ class DCSSManager():
         _log.info("DCSS: SASL authentication complete")
 
     def on_904_message(self, event):
-        _log.critical("DCSS: SASL authentication failed, shutting down")
-        os.kill(os.getpid(), signal.SIGTERM)
+        """Handle a 904 SASL authentication failure event."""
+
+        _log.critical("DCSS: SASL authentication failed, disconnecting IRC.")
+        self.disconnect()
 
     def on_privmsg(self, event):
         """Handle an IRC private message."""
