@@ -359,7 +359,13 @@ class DCSSManager():
             for m in list(self.messages):
                 nick, message = m
                 self.messages.remove(m)
-                yield from self.read_irc(nick, message)
+
+                try:
+                    yield from self.read_irc(nick, message)
+
+                except Exception:
+                    self.log_exception("Error handling IRC message from nick "
+                            "{}: {}".format(nick, message))
 
             # XXX This seems needed to give other coroutines a chance to run.
             # It may be needed until we can rework the irc connection to use
