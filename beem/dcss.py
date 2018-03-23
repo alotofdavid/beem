@@ -461,8 +461,8 @@ class DCSSManager():
 
             if bot:
                 try:
-                    yield from bot.send_message(source, query["requester"],
-                            message)
+                    yield from bot.send_query_message(source,
+                            query["requester"], message)
                     return
 
                 except Exception:
