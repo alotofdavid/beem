@@ -216,39 +216,13 @@ class GameConnection(webtiles.WebTilesGameConnection, ConnectionHandler,
                 nicks.add(username)
         return nicks
 
-    def user_is_admin(self, user):
-        """Return True if the user is a bot admin."""
-
-        if not self.manager.conf.get('admins'):
-            return False
-
-        lname = user.lower()
-        for u in self.manager.conf['admins']:
-            if u.lower() == lname:
-                return True
-
-        return False
-
-    def user_is_ignored(self, user):
-        """Return True if the user is ignored by our configuration."""
-
-        if not self.manager.conf.get('ignored_users'):
-            return False
-
-        lname = user.lower()
-        for u in self.manager.conf['ignored_users']:
-            if u.lower() == lname:
-                return True
-
-        return False
-
     def is_allowed_user(self, user):
         """Return True if the user is allowed to execute bot commands."""
 
-        if self.user_is_admin(user):
+        if self.manager.user_is_admin(user):
             return True
 
-        if self.user_is_ignored(user):
+        if self.manager.user_is_ignored(user):
             return False
 
         user_data = self.manager.bot_db.get_user_data(self.player)
@@ -623,14 +597,40 @@ class WebTilesManager():
 
         queue["time_end"] = time.time()
 
+    def user_is_admin(self, user):
+        """Return True if the user is a bot admin."""
+
+        if not self.conf.get('admins'):
+            return False
+
+        lname = user.lower()
+        for u in self.conf['admins']:
+            if u.lower() == lname:
+                return True
+
+        return False
+
+    def user_is_ignored(self, user):
+        if not self.conf.get('ignored_users'):
+            return False
+
+        lname = user.lower()
+        for u in self.conf['ignored_users']:
+            if u.lower() == lname:
+                return True
+
+        return False
+
     def can_watch_user(self, username):
+        """Can we ever watch this user? If in single user mode, we only return
+        true for the watch user. Otherwise, return true if the user is not
+        ignored and is not unsubscribed."""
+
         if self.conf.get("watch_player"):
             return username == self.conf["watch_player"]
 
-        if self.conf.get("never_watch"):
-            for u in self.conf["never_watch"]:
-                if u.lower() == username.lower():
-                    return False
+        if self.user_is_ignored(username):
+            return False
 
         user_data = self.bot_db.get_user_data(username)
         if user_data and user_data["subscription"] < 0:

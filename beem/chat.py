@@ -104,7 +104,7 @@ class ChatWatcher():
                 arg_msg = new_arg_msg[0]
 
         if target_name:
-            if not self.user_is_admin(user):
+            if not self.manager.user_is_admin(user):
                 raise BotCommandException(
                         "You must be an admin to specify a target user.")
 
@@ -156,7 +156,7 @@ class ChatWatcher():
             raise BotCommandException(
                     "This command is not allowed in single user mode.")
 
-        if self.user_is_admin(user):
+        if self.manager.user_is_admin(user):
             return
 
         if entry.get("require_admin"):
@@ -261,7 +261,7 @@ class ChatWatcher():
         if not self.is_allowed_user(sender):
             return
 
-        admin = self.user_is_admin(sender)
+        admin = self.manager.user_is_admin(sender)
         command_time = time.time()
         # We don't return right away so we can log attempts to issue commands
         # over the rate limit.
