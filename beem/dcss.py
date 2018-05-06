@@ -224,7 +224,7 @@ class IRCBot():
 
             else:
                 _log.warning("DCSS: Unable to find query for %s result: %s",
-                        nick, message)
+                        self.conf['nick'], message)
                 return
 
         self.last_answered_query = self.queries[query_id]
